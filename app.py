@@ -24,7 +24,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import or_, func, and_
+from sqlalchemy import or_, func, and_, text
 import bcrypt
 
 # Настройка логирования
@@ -170,7 +170,6 @@ def admin_required(f):
         if not current_user.is_authenticated or not current_user.is_admin:
             abort(403)
         return f(*args, **kwargs)
-
     return decorated_function
 
 
@@ -238,7 +237,7 @@ class User(UserMixin, db.Model):
                                 foreign_keys="Message.sender_id")
     recv_msgs = db.relationship("Message", backref="receiver", lazy="dynamic",
                                 foreign_keys="Message.receiver_id")
-
+    voice_msgs = db.relationship("VoiceMessage", backref="sender", lazy="dynamic")
     notifications = db.relationship("Notification", backref="recipient", lazy="dynamic",
                                     foreign_keys="Notification.user_id")
     comments = db.relationship("Comment", backref="author", lazy="dynamic")
@@ -1156,8 +1155,7 @@ def register():
                 return render_template("register.html")
 
             if not re.match(r"^[a-zA-Z0-9_]{3,40}$", username):
-                flash("Имя пользователя должно быть 3-40 символов и содержать только буквы, цифры и подчеркивания",
-                      "error")
+                flash("Имя пользователя должно быть 3-40 символов и содержать только буквы, цифры и подчеркивания", "error")
                 return render_template("register.html")
 
             if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
@@ -1213,7 +1211,7 @@ def register():
 
 
 @app.route("/login", methods=["GET", "POST"])
-@limiter.limit("10 per minute")
+@limiter.limit("10 per minute", methods=["POST"])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("index"))
@@ -2535,7 +2533,7 @@ def uploaded_file(filename):
 # ──────────────────────────────────────────────────────────────────────────────
 def create_admin_user():
     """Create first admin user if none exists"""
-    with app.app_context():
+    try:
         admin = User.query.filter_by(username='admin').first()
         if not admin:
             admin_password = os.environ.get('ADMIN_PASSWORD', 'Admin123!')
@@ -2549,11 +2547,99 @@ def create_admin_user():
             admin.set_password(admin_password)
             db.session.add(admin)
             db.session.commit()
-            print("✅ Admin user created")
-            print(f"   Username: admin")
-            print(f"   Password: {admin_password}")
+            logger.info("✅ Администратор создан")
+            logger.info(f"   👤 Username: admin")
+            logger.info(f"   🔑 Password: {admin_password}")
+            logger.info("   ⚠️  Смените пароль после первого входа!")
         else:
-            print("✅ Admin user already exists")
+            logger.info("✅ Администратор уже существует")
+    except Exception as e:
+        logger.error(f"❌ Ошибка при создании администратора: {e}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Функция миграции базы данных
+# ──────────────────────────────────────────────────────────────────────────────
+def run_migrations():
+    """Автоматическая миграция базы данных при запуске"""
+    try:
+        # Проверяем существующие колонки в таблице user
+        inspector = db.inspect(db.engine)
+        columns = [col['name'] for col in inspector.get_columns('user')]
+
+        logger.info(f"📊 Текущие колонки в таблице user: {columns}")
+
+        changes = []
+
+        # Добавляем колонку is_admin если её нет
+        if 'is_admin' not in columns:
+            logger.info("➕ Добавление колонки is_admin...")
+            db.session.execute(text('ALTER TABLE "user" ADD COLUMN is_admin BOOLEAN DEFAULT FALSE'))
+            changes.append("is_admin")
+
+        # Добавляем колонку two_factor_enabled если её нет
+        if 'two_factor_enabled' not in columns:
+            logger.info("➕ Добавление колонки two_factor_enabled...")
+            db.session.execute(text('ALTER TABLE "user" ADD COLUMN two_factor_enabled BOOLEAN DEFAULT FALSE'))
+            changes.append("two_factor_enabled")
+
+        # Добавляем колонку two_factor_secret если её нет
+        if 'two_factor_secret' not in columns:
+            logger.info("➕ Добавление колонки two_factor_secret...")
+            db.session.execute(text('ALTER TABLE "user" ADD COLUMN two_factor_secret VARCHAR(32)'))
+            changes.append("two_factor_secret")
+
+        # Добавляем колонку is_online если её нет
+        if 'is_online' not in columns:
+            logger.info("➕ Добавление колонки is_online...")
+            db.session.execute(text('ALTER TABLE "user" ADD COLUMN is_online BOOLEAN DEFAULT FALSE'))
+            changes.append("is_online")
+
+        # Добавляем колонку last_seen если её нет
+        if 'last_seen' not in columns:
+            logger.info("➕ Добавление колонки last_seen...")
+            db.session.execute(text('ALTER TABLE "user" ADD COLUMN last_seen DATETIME'))
+            changes.append("last_seen")
+
+        if changes:
+            db.session.commit()
+            logger.info(f"✅ Добавлены колонки: {', '.join(changes)}")
+        else:
+            logger.info("✅ Все колонки уже существуют")
+
+        # Проверяем таблицу login_history
+        tables = inspector.get_table_names()
+        if 'login_history' not in tables:
+            logger.info("➕ Создание таблицы login_history...")
+            db.create_all()  # Создаст все недостающие таблицы
+            logger.info("✅ Таблица login_history создана")
+
+        if 'voice_message' not in tables:
+            logger.info("➕ Создание таблицы voice_message...")
+            db.create_all()
+            logger.info("✅ Таблица voice_message создана")
+
+        if 'call' not in tables:
+            logger.info("➕ Создание таблицы call...")
+            db.create_all()
+            logger.info("✅ Таблица call создана")
+
+        if 'report' not in tables:
+            logger.info("➕ Создание таблицы report...")
+            db.create_all()
+            logger.info("✅ Таблица report создана")
+
+        # Обновляем существующих пользователей
+        db.session.execute(text('UPDATE "user" SET is_admin = FALSE WHERE is_admin IS NULL'))
+        db.session.execute(text('UPDATE "user" SET two_factor_enabled = FALSE WHERE two_factor_enabled IS NULL'))
+        db.session.execute(text('UPDATE "user" SET is_online = FALSE WHERE is_online IS NULL'))
+        db.session.commit()
+
+        logger.info("🎉 Миграция базы данных завершена успешно!")
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка при миграции: {e}")
+        db.session.rollback()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2563,29 +2649,33 @@ def init_app():
     """Initialize application"""
     with app.app_context():
         try:
+            # Создаем таблицы (только если их нет)
             db.create_all()
-            print("✅ Database tables created")
+            logger.info("✅ Базовые таблицы созданы")
 
+            # Запускаем миграции
+            run_migrations()
+
+            # Создаем папки для загрузок
             ensure_upload_folders()
 
-            # Test write permissions
+            # Тест прав на запись
             test_file = os.path.join(app.config['UPLOAD_FOLDER'], 'test.txt')
             try:
                 with open(test_file, 'w') as f:
                     f.write('test')
                 os.remove(test_file)
-                print("✅ Upload folder is writable")
+                logger.info("✅ Папка загрузок доступна для записи")
             except Exception as e:
-                print(f"⚠️ Upload folder may not be writable: {e}")
+                logger.warning(f"⚠️ Папка загрузок может быть недоступна: {e}")
 
-            # Create admin user
+            # Создаем администратора
             create_admin_user()
 
-            print("✅ Initialization complete")
+            logger.info("🎉 Инициализация приложения завершена!")
 
         except Exception as e:
-            print(f"❌ Initialization error: {e}")
-            logger.error(f"Init error: {e}")
+            logger.error(f"❌ Ошибка при инициализации: {e}")
 
 
 if __name__ == "__main__":
@@ -2593,10 +2683,17 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 5000))
 
-    print("🚀 Starting Kildear Social Network...")
-    print(f"🌐 Server running on port {port}")
-    print(f"📁 Upload folder: {app.config['UPLOAD_FOLDER']}")
-    print("📝 Press Ctrl+C to stop")
+    print("\n" + "=" * 60)
+    print("🚀 ЗАПУСК KILDEAR SOCIAL NETWORK")
+    print("=" * 60)
+    print(f"🌐 Сервер запускается на порту: {port}")
+    print(f"📁 Папка загрузок: {app.config['UPLOAD_FOLDER']}")
+    print(f"🐍 Python: {platform.python_version()}")
+    print(f"🖥️  Платформа: {platform.system()}")
+    print(f"🎯 Режим: {'PRODUCTION' if is_production else 'DEVELOPMENT'}")
+    print("=" * 60)
+    print("📝 Для остановки нажмите Ctrl+C")
+    print("=" * 60 + "\n")
 
     socketio.run(app,
                  debug=not is_production,
