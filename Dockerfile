@@ -17,10 +17,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Создаем папку для загрузок
-RUN mkdir -p /tmp/uploads
+RUN mkdir -p /tmp/uploads && chmod 777 /tmp/uploads
+
+# Делаем скрипты исполняемыми
+RUN chmod +x migrate_render.py || true
 
 # Указываем порт
 EXPOSE 10000
 
-# Команда для запуска
-CMD gunicorn -k eventlet -w 1 --bind 0.0.0.0:$PORT app:app
+# Команда для запуска - сначала миграция, потом приложение
+CMD python migrate_render.py && gunicorn -k eventlet -w 1 --bind 0.0.0.0:$PORT app:app
