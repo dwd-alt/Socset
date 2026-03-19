@@ -1,7 +1,6 @@
 """
 Kildear Social Network — app.py
-Optimized for Render.com deployment
-Full-featured backend with WebSocket support
+Optimized for Render.com with Python 3.11 and PostgreSQL support
 """
 
 import os
@@ -10,6 +9,7 @@ import time
 import uuid
 import html
 import logging
+import platform
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -25,7 +25,7 @@ from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import or_, func, and_
 
-# Настройка логирования для Render
+# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -37,28 +37,39 @@ app = Flask(__name__)
 # Определяем окружение
 is_production = os.environ.get('RENDER') == 'true' or os.environ.get('FLASK_ENV') == 'production'
 is_render = os.environ.get('RENDER') == 'true'
+is_windows = platform.system() == 'Windows'
+
+logger.info(f"Platform: {platform.system()}, Render: {is_render}, Production: {is_production}")
 
 # Определяем базовую директорию
 basedir = os.path.abspath(os.path.dirname(__file__))
 
-# Настройка базы данных для Render
+# Настройка базы данных для Render с поддержкой SSL
 if is_render:
-    # На Render используем PostgreSQL
     database_url = os.environ.get('DATABASE_URL', '')
-    # Render использует 'postgres://', но SQLAlchemy требует 'postgresql://'
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
-    SQLALCHEMY_DATABASE_URI = database_url
+    # Добавляем SSL параметр для PostgreSQL на Render
+    if '?' in database_url:
+        SQLALCHEMY_DATABASE_URI = database_url + '&sslmode=require'
+    else:
+        SQLALCHEMY_DATABASE_URI = database_url + '?sslmode=require'
+    logger.info(f"Using PostgreSQL database on Render")
 else:
     # Локально используем SQLite
     SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(basedir, 'instance', 'kildear.db')
+    logger.info(f"Using SQLite database locally")
 
 # Настройки для загрузки файлов на Render
 if is_render:
-    # На Render используем временную папку
-    UPLOAD_FOLDER = os.path.join('/tmp', 'uploads')
+    # На Render используем /tmp/uploads (временное хранилище)
+    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/tmp/uploads')
 else:
     UPLOAD_FOLDER = os.path.join('static', 'uploads')
+
+# Создаем все необходимые подпапки
+UPLOAD_SUBFOLDERS = ['avatars', 'images', 'videos', 'covers', 'groups',
+                     'channels', 'chat_images', 'group_covers', 'channel_covers']
 
 app.config.update(
     SECRET_KEY=os.environ.get("SECRET_KEY", os.urandom(48).hex()),
@@ -67,11 +78,13 @@ app.config.update(
     SQLALCHEMY_ENGINE_OPTIONS={
         "pool_pre_ping": True,
         "pool_recycle": 300,
+        "pool_size": 10,
+        "max_overflow": 20
     } if is_render else {},
-    MAX_CONTENT_LENGTH=int(os.environ.get("MAX_CONTENT_LENGTH", 500 * 1024 * 1024)),
+    MAX_CONTENT_LENGTH=int(os.environ.get("MAX_CONTENT_LENGTH", 100 * 1024 * 1024)),  # 100MB max
     UPLOAD_FOLDER=UPLOAD_FOLDER,
     WTF_CSRF_TIME_LIMIT=3600,
-    
+
     # Безопасность сессий
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -88,7 +101,7 @@ login_mgr = LoginManager(app)
 login_mgr.login_view = "login"
 login_mgr.login_message_category = "info"
 
-# Rate limiting с адаптацией для Render
+# Rate limiting
 limiter = Limiter(
     key_func=get_remote_address,
     app=app,
@@ -96,16 +109,29 @@ limiter = Limiter(
     storage_uri="memory://" if is_render else "memory://",
 )
 
-# Socket.IO для Render
+# Настройка Socket.IO в зависимости от платформы
+if is_render:
+    # На Render используем eventlet
+    async_mode = 'eventlet'
+elif is_windows:
+    # На Windows используем threading (eventlet не работает на Windows)
+    async_mode = 'threading'
+else:
+    # На Linux/Mac можно использовать eventlet
+    async_mode = 'eventlet'
+
+logger.info(f"Using SocketIO async_mode: {async_mode}")
+
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",
-    async_mode='eventlet',
+    async_mode=async_mode,
     logger=True,
     engineio_logger=True,
     ping_timeout=60,
     ping_interval=25
 )
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Template Filters
@@ -115,10 +141,10 @@ def timeago_filter(date):
     """Convert datetime to 'time ago' format"""
     if not date:
         return 'recently'
-    
+
     now = datetime.utcnow()
     diff = now - date
-    
+
     if diff.days > 365:
         return f"{diff.days // 365}y ago"
     elif diff.days > 30:
@@ -150,7 +176,7 @@ def format_time_filter(date, format='%H:%M'):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  DDoS / Abuse Protection (адаптировано для Render)
+#  DDoS / Abuse Protection
 # ──────────────────────────────────────────────────────────────────────────────
 _req_log: dict = defaultdict(list)
 _blocked_ips: set = set()
@@ -159,22 +185,25 @@ _fail_log: dict = defaultdict(list)
 
 @app.before_request
 def ddos_shield():
-    # Пропускаем для Render internal requests
+    # Получаем реальный IP за прокси
     if request.headers.get('X-Forwarded-For'):
         ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
     else:
         ip = request.remote_addr or '0.0.0.0'
-    
+
     if ip in _blocked_ips:
         abort(429)
+
     now = time.time()
     window = [t for t in _req_log[ip] if now - t < 10]
     window.append(now)
     _req_log[ip] = window
+
     if len(window) > 200:
         _blocked_ips.add(ip)
         app.logger.warning(f"[DDoS] Blocked IP: {ip}")
         abort(429)
+
     if request.content_length and request.content_length > app.config["MAX_CONTENT_LENGTH"]:
         abort(413)
 
@@ -217,25 +246,39 @@ def track_failure(ip: str):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  Helper Utilities
+#  File Upload Helper
 # ──────────────────────────────────────────────────────────────────────────────
 def allowed_file(filename: str, allowed: set) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed
 
 
+def ensure_upload_folders():
+    """Ensure all upload folders exist"""
+    for folder in UPLOAD_SUBFOLDERS:
+        folder_path = os.path.join(app.config['UPLOAD_FOLDER'], folder)
+        try:
+            os.makedirs(folder_path, exist_ok=True)
+            logger.info(f"✅ Folder ready: {folder_path}")
+        except Exception as e:
+            logger.error(f"❌ Failed to create folder {folder_path}: {e}")
+
+
 def save_file(file, subfolder: str):
     """Сохраняет файл и возвращает URL или None"""
     if not file or not file.filename:
+        logger.warning("No file provided")
         return None
 
     try:
-        # Получаем расширение
+        # Проверяем расширение
         ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
         if not ext:
+            logger.warning(f"No file extension: {file.filename}")
             return None
 
         # Проверяем разрешенные типы
         if ext not in ALLOWED_IMAGE and ext not in ALLOWED_VIDEO:
+            logger.warning(f"File type not allowed: {ext}")
             return None
 
         # Генерируем уникальное имя
@@ -251,39 +294,64 @@ def save_file(file, subfolder: str):
         # Сохраняем файл
         file.save(file_path)
 
-        # Проверяем изображение (если это изображение)
-        if ext in ALLOWED_IMAGE:
-            try:
-                from PIL import Image
-                img = Image.open(file_path)
-                img.verify()
-            except Exception as e:
-                os.remove(file_path)
-                logger.error(f"Invalid image: {e}")
-                return None
+        # Проверяем, что файл сохранился
+        if not os.path.exists(file_path):
+            logger.error(f"❌ File not saved: {file_path}")
+            return None
 
-        logger.info(f"✅ Файл сохранен: {file_path}")
-        
-        # Возвращаем URL (адаптировано для Render)
+        # Проверяем размер
+        file_size = os.path.getsize(file_path)
+        if file_size == 0:
+            logger.error(f"❌ File is empty: {file_path}")
+            os.remove(file_path)
+            return None
+
+        logger.info(f"✅ File saved: {file_path} ({file_size} bytes)")
+
+        # Возвращаем URL
         if is_render:
-            # На Render файлы хранятся временно, URL будет относительным
-            return f"/static/uploads/{subfolder}/{filename}"
+            # На Render используем специальный маршрут для файлов
+            return f"/uploads/{subfolder}/{filename}"
         else:
             return f"/static/uploads/{subfolder}/{filename}"
 
     except Exception as e:
-        logger.error(f"❌ Ошибка при сохранении файла: {e}")
+        logger.error(f"❌ Error saving file: {e}")
         return None
 
 
-def sanitize(text: str) -> str:
-    return html.escape(text.strip()) if text else ""
+# ──────────────────────────────────────────────────────────────────────────────
+#  Маршрут для доступа к загруженным файлам на Render
+# ──────────────────────────────────────────────────────────────────────────────
+@app.route('/uploads/<path:subfolder>/<path:filename>')
+def serve_upload(subfolder, filename):
+    """Serve uploaded files"""
+    try:
+        # Проверяем, что подпапка разрешена
+        if subfolder not in UPLOAD_SUBFOLDERS:
+            abort(404)
+
+        # Формируем путь к файлу
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], subfolder, filename)
+
+        # Проверяем существование
+        if not os.path.exists(file_path):
+            logger.warning(f"File not found: {file_path}")
+            abort(404)
+
+        # Отправляем файл
+        return send_from_directory(
+            os.path.join(app.config['UPLOAD_FOLDER'], subfolder),
+            filename
+        )
+    except Exception as e:
+        logger.error(f"Error serving file: {e}")
+        abort(404)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Database Models
 # ──────────────────────────────────────────────────────────────────────────────
-# [Все модели остаются без изменений]
 follows = db.Table(
     "follows",
     db.Column("follower_id", db.Integer, db.ForeignKey("user.id"), primary_key=True),
@@ -345,7 +413,7 @@ class User(UserMixin, db.Model):
     comments = db.relationship("Comment", backref="author", lazy="dynamic")
     owned_groups = db.relationship("Group", backref="owner", lazy="dynamic")
     owned_channels = db.relationship("Channel", backref="owner", lazy="dynamic")
-    
+
     blocked_users = db.relationship(
         "User", secondary=blocks,
         primaryjoin=blocks.c.blocker_id == id,
@@ -370,16 +438,16 @@ class User(UserMixin, db.Model):
 
     def is_following(self, user):
         return self.following.filter(follows.c.followed_id == user.id).count() > 0
-        
+
     def is_blocked(self, user):
         return self.blocked_users.filter(blocks.c.blocked_id == user.id).count() > 0
-        
+
     def block(self, user):
         if not self.is_blocked(user):
             self.blocked_users.append(user)
             return True
         return False
-        
+
     def unblock(self, user):
         if self.is_blocked(user):
             self.blocked_users.remove(user)
@@ -442,7 +510,7 @@ class Message(db.Model):
     is_deleted = db.Column(db.Boolean, default=False)
     reply_to_id = db.Column(db.Integer, db.ForeignKey("message.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
     replies = db.relationship("Message", backref=db.backref("reply_to", remote_side=[id]))
 
 
@@ -455,7 +523,7 @@ class Call(db.Model):
     duration = db.Column(db.Integer, default=0)
     started_at = db.Column(db.DateTime, default=datetime.utcnow)
     ended_at = db.Column(db.DateTime, nullable=True)
-    
+
     caller = db.relationship("User", foreign_keys=[caller_id])
     callee = db.relationship("User", foreign_keys=[callee_id])
 
@@ -704,7 +772,8 @@ def register():
                 return render_template("register.html")
 
             if not re.match(r"^[a-zA-Z0-9_]{3,40}$", username):
-                flash("Имя пользователя должно быть 3-40 символов и содержать только буквы, цифры и подчеркивания", "error")
+                flash("Имя пользователя должно быть 3-40 символов и содержать только буквы, цифры и подчеркивания",
+                      "error")
                 return render_template("register.html")
 
             if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
@@ -769,8 +838,8 @@ def login():
         identifier = request.form.get("identifier", "").strip()
         password = request.form.get("password", "")
         remember = bool(request.form.get("remember"))
-        
-        # Get real IP behind proxy for Render
+
+        # Get real IP behind proxy
         if request.headers.get('X-Forwarded-For'):
             ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
         else:
@@ -791,12 +860,12 @@ def login():
 
         login_user(user, remember=remember)
         session.permanent = remember
-        
+
         # Update online status
         user.is_online = True
         user.last_seen = datetime.utcnow()
         db.session.commit()
-        
+
         next_page = request.args.get("next")
         flash(f"С возвращением, {user.username}! 👋", "success")
         return redirect(next_page or url_for("index"))
@@ -810,7 +879,7 @@ def logout():
     current_user.is_online = False
     current_user.last_seen = datetime.utcnow()
     db.session.commit()
-    
+
     logout_user()
     flash("Вы вышли из системы.", "info")
     return redirect(url_for("login"))
@@ -824,21 +893,21 @@ def logout():
 def index():
     page = request.args.get("page", 1, type=int)
     followed_ids = [u.id for u in current_user.following.all()] + [current_user.id]
-    
+
     # Exclude blocked users
     blocked_ids = [b.id for b in current_user.blocked_users]
-    
+
     posts = (Post.query
              .filter(Post.user_id.in_(followed_ids))
              .filter(Post.user_id.notin_(blocked_ids))
              .order_by(Post.created_at.desc())
              .paginate(page=page, per_page=15, error_out=False))
-    
+
     suggestions = (User.query
                    .filter(User.id.notin_(followed_ids + blocked_ids))
                    .filter(User.id != current_user.id)
                    .order_by(func.random()).limit(5).all())
-    
+
     return render_template("index.html", posts=posts, suggestions=suggestions)
 
 
@@ -868,7 +937,8 @@ def create_post():
                 media_type = "image"
                 logger.info(f"Изображение сохранено: {media_url}")
             else:
-                flash(f"Неподдерживаемый тип файла. Разрешены: изображения {ALLOWED_IMAGE} и видео {ALLOWED_VIDEO}", "error")
+                flash(f"Неподдерживаемый тип файла. Разрешены: изображения {ALLOWED_IMAGE} и видео {ALLOWED_VIDEO}",
+                      "error")
                 return redirect(url_for("index"))
         except Exception as e:
             logger.error(f"Ошибка при сохранении файла: {e}")
@@ -897,11 +967,11 @@ def create_post():
 @login_required
 def view_post(post_id):
     post = Post.query.get_or_404(post_id)
-    
+
     # Check if user is blocked
     if post.author.id in [b.id for b in current_user.blocked_users]:
         abort(403)
-        
+
     post.views += 1
     db.session.commit()
     comments = post.comments.order_by(Comment.created_at.asc()).all()
@@ -912,11 +982,11 @@ def view_post(post_id):
 @login_required
 def like_post(post_id):
     post = Post.query.get_or_404(post_id)
-    
+
     # Check if user is blocked
     if post.author.id in [b.id for b in current_user.blocked_users]:
         return jsonify({"error": "Cannot interact with blocked user"}), 403
-        
+
     if post.is_liked_by(current_user):
         post.liked_by.remove(current_user)
         liked = False
@@ -932,7 +1002,7 @@ def like_post(post_id):
                 text=f"{current_user.username} liked your post."
             )
             db.session.add(n)
-            
+
             # Send real-time notification
             send_notification(post.user_id, {
                 "type": "like",
@@ -944,7 +1014,7 @@ def like_post(post_id):
                 "post_id": post.id,
                 "text": f"{current_user.username} liked your post"
             })
-            
+
     db.session.commit()
     return jsonify({"liked": liked, "count": post.like_count})
 
@@ -954,18 +1024,18 @@ def like_post(post_id):
 @limiter.limit("60 per hour")
 def add_comment(post_id):
     post = Post.query.get_or_404(post_id)
-    
+
     # Check if user is blocked
     if post.author.id in [b.id for b in current_user.blocked_users]:
         return jsonify({"error": "Cannot interact with blocked user"}), 403
-        
+
     content = request.form.get("content", "").strip()
     if not content:
         return jsonify({"error": "Comment cannot be empty."}), 400
-        
+
     c = Comment(post_id=post.id, user_id=current_user.id, content=content)
     db.session.add(c)
-    
+
     if post.user_id != current_user.id:
         n = Notification(
             user_id=post.user_id,
@@ -975,7 +1045,7 @@ def add_comment(post_id):
             text=f"{current_user.username} commented on your post."
         )
         db.session.add(n)
-        
+
         # Send real-time notification
         send_notification(post.user_id, {
             "type": "comment",
@@ -988,9 +1058,9 @@ def add_comment(post_id):
             "comment": content[:50],
             "text": f"{current_user.username} commented on your post"
         })
-        
+
     db.session.commit()
-    
+
     return jsonify({
         "id": c.id,
         "username": current_user.username,
@@ -1019,13 +1089,13 @@ def delete_post(post_id):
 @login_required
 def profile(username):
     user = User.query.filter(func.lower(User.username) == username.lower()).first_or_404()
-    
+
     # Check if user is blocked
     is_blocked = current_user.is_blocked(user) if user.id != current_user.id else False
-    
+
     page = request.args.get("page", 1, type=int)
     tab = request.args.get("tab", "posts")
-    
+
     # Filter posts if blocked
     if is_blocked:
         posts = []
@@ -1035,10 +1105,10 @@ def profile(username):
                  .paginate(page=page, per_page=12, error_out=False))
         videos = (user.posts.filter_by(media_type="video")
                   .order_by(Post.created_at.desc()).limit(12).all())
-                  
+
     is_own = user.id == current_user.id
     is_following = current_user.is_following(user) if not is_own else False
-    
+
     return render_template("profile.html", user=user, posts=posts,
                            videos=videos, is_own=is_own,
                            is_following=is_following, is_blocked=is_blocked,
@@ -1049,29 +1119,63 @@ def profile(username):
 @login_required
 def edit_profile():
     if request.method == "POST":
-        current_user.display_name = request.form.get("display_name", "")[:60]
-        current_user.bio = request.form.get("bio", "")[:500]
-        current_user.website = request.form.get("website", "")[:200]
-        current_user.location = request.form.get("location", "")[:100]
-        current_user.accent_color = request.form.get("accent_color", "#6c63ff")[:7]
-        current_user.is_private = bool(request.form.get("is_private"))
+        try:
+            # Обновляем текстовые поля
+            current_user.display_name = request.form.get("display_name", "")[:60]
+            current_user.bio = request.form.get("bio", "")[:500]
+            current_user.website = request.form.get("website", "")[:200]
+            current_user.location = request.form.get("location", "")[:100]
+            current_user.accent_color = request.form.get("accent_color", "#6c63ff")[:7]
+            current_user.is_private = bool(request.form.get("is_private"))
 
-        avatar = request.files.get("avatar")
-        if avatar and avatar.filename:
-            url = save_file(avatar, "avatars")
-            if url:
-                current_user.avatar = url
+            # Обработка аватара
+            avatar = request.files.get("avatar")
+            if avatar and avatar.filename:
+                # Проверяем размер файла (макс 5MB)
+                avatar.seek(0, 2)
+                file_size = avatar.tell()
+                avatar.seek(0)
 
-        cover = request.files.get("cover_photo")
-        if cover and cover.filename:
-            url = save_file(cover, "covers")
-            if url:
-                current_user.cover_photo = url
+                if file_size > 5 * 1024 * 1024:
+                    flash("Avatar file too large. Maximum size is 5MB.", "error")
+                else:
+                    url = save_file(avatar, "avatars")
+                    if url:
+                        current_user.avatar = url
+                        flash("Avatar updated successfully!", "success")
+                        logger.info(f"Avatar updated: {url}")
+                    else:
+                        flash("Failed to upload avatar. Please try again.", "error")
 
-        db.session.commit()
-        flash("Profile updated!", "success")
+            # Обработка обложки
+            cover = request.files.get("cover_photo")
+            if cover and cover.filename:
+                # Проверяем размер файла (макс 10MB)
+                cover.seek(0, 2)
+                file_size = cover.tell()
+                cover.seek(0)
+
+                if file_size > 10 * 1024 * 1024:
+                    flash("Cover photo too large. Maximum size is 10MB.", "error")
+                else:
+                    url = save_file(cover, "covers")
+                    if url:
+                        current_user.cover_photo = url
+                        flash("Cover photo updated successfully!", "success")
+                        logger.info(f"Cover updated: {url}")
+                    else:
+                        flash("Failed to upload cover photo. Please try again.", "error")
+
+            db.session.commit()
+            flash("Profile updated successfully!", "success")
+
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error updating profile: {e}")
+            flash(f"Error updating profile: {str(e)}", "error")
+
         return redirect(url_for("profile", username=current_user.username))
-        
+
     return render_template("edit_profile.html")
 
 
@@ -1079,14 +1183,14 @@ def edit_profile():
 @login_required
 def follow(username):
     user = User.query.filter(func.lower(User.username) == username.lower()).first_or_404()
-    
+
     if user.id == current_user.id:
         return jsonify({"error": "Cannot follow yourself."}), 400
-        
+
     # Check if user is blocked
     if current_user.is_blocked(user):
         return jsonify({"error": "Cannot follow blocked user"}), 400
-        
+
     if current_user.is_following(user):
         current_user.following.remove(user)
         following = False
@@ -1100,7 +1204,7 @@ def follow(username):
             text=f"{current_user.username} started following you."
         )
         db.session.add(n)
-        
+
         # Send real-time notification
         send_notification(user.id, {
             "type": "follow",
@@ -1111,7 +1215,7 @@ def follow(username):
             },
             "text": f"{current_user.username} started following you"
         })
-        
+
     db.session.commit()
     return jsonify({"following": following, "followers": user.follower_count})
 
@@ -1125,17 +1229,17 @@ def block_user(user_id):
     user = User.query.get_or_404(user_id)
     if user.id == current_user.id:
         return jsonify({"error": "Cannot block yourself"}), 400
-        
+
     if current_user.block(user):
         # Remove from following/followers
         if current_user.is_following(user):
             current_user.following.remove(user)
         if user.is_following(current_user):
             user.following.remove(current_user)
-            
+
         db.session.commit()
         return jsonify({"success": True, "blocked": True})
-        
+
     return jsonify({"error": "User already blocked"}), 400
 
 
@@ -1156,15 +1260,15 @@ def unblock_user(user_id):
 @login_required
 def video_feed():
     page = request.args.get("page", 1, type=int)
-    
+
     # Exclude blocked users
     blocked_ids = [b.id for b in current_user.blocked_users]
-    
+
     videos = (Post.query.filter_by(media_type="video")
               .filter(Post.user_id.notin_(blocked_ids))
               .order_by(Post.created_at.desc())
               .paginate(page=page, per_page=10, error_out=False))
-              
+
     return render_template("video.html", videos=videos)
 
 
@@ -1186,7 +1290,7 @@ def search():
     posts = []
     groups = []
     channels = []
-    
+
     # Exclude blocked users
     blocked_ids = [b.id for b in current_user.blocked_users]
 
@@ -1198,18 +1302,18 @@ def search():
                 User.username.ilike(pattern),
                 User.display_name.ilike(pattern)
             )
-        ).filter(User.id != current_user.id)\
-         .filter(User.id.notin_(blocked_ids))\
-         .limit(20).all()
+        ).filter(User.id != current_user.id) \
+            .filter(User.id.notin_(blocked_ids)) \
+            .limit(20).all()
 
-        posts = Post.query.filter(Post.content.ilike(pattern))\
-                 .filter(Post.user_id.notin_(blocked_ids))\
-                 .limit(20).all()
-                 
+        posts = Post.query.filter(Post.content.ilike(pattern)) \
+            .filter(Post.user_id.notin_(blocked_ids)) \
+            .limit(20).all()
+
         groups = Group.query.filter(
             or_(Group.name.ilike(pattern),
                 Group.description.ilike(pattern))).limit(10).all()
-                
+
         channels = Channel.query.filter(
             or_(Channel.name.ilike(pattern),
                 Channel.description.ilike(pattern))).limit(10).all()
@@ -1242,11 +1346,11 @@ def chat_list():
         sent_to = db.session.query(Message.receiver_id).filter_by(sender_id=current_user.id).distinct()
         recv_from = db.session.query(Message.sender_id).filter_by(receiver_id=current_user.id).distinct()
         uid_set = {r[0] for r in sent_to} | {r[0] for r in recv_from}
-        
+
         # Exclude blocked users
         blocked_ids = [b.id for b in current_user.blocked_users]
         uid_set = uid_set - set(blocked_ids)
-        
+
         partners = User.query.filter(User.id.in_(uid_set)).all()
 
         conversations = []
@@ -1258,11 +1362,11 @@ def chat_list():
             ))
                     .filter(Message.is_deleted == False)
                     .order_by(Message.created_at.desc()).first())
-                    
+
             unread = (Message.query
                       .filter_by(sender_id=p.id, receiver_id=current_user.id, is_read=False, is_deleted=False)
                       .count())
-                      
+
             conversations.append({
                 "user": p,
                 "last": last,
@@ -1284,7 +1388,7 @@ def chat(username):
     try:
         partner = User.query.filter(
             func.lower(User.username) == username.lower()).first_or_404()
-            
+
         # Check if user is blocked
         is_blocked = current_user.is_blocked(partner)
 
@@ -1311,11 +1415,11 @@ def chat(username):
         sent_to = db.session.query(Message.receiver_id).filter_by(sender_id=current_user.id).distinct()
         recv_from = db.session.query(Message.sender_id).filter_by(receiver_id=current_user.id).distinct()
         uid_set = {r[0] for r in sent_to} | {r[0] for r in recv_from}
-        
+
         # Exclude blocked users
         blocked_ids = [b.id for b in current_user.blocked_users]
         uid_set = uid_set - set(blocked_ids)
-        
+
         partners_list = User.query.filter(User.id.in_(uid_set)).all()
 
         conversations = []
@@ -1327,11 +1431,11 @@ def chat(username):
             ))
                     .filter(Message.is_deleted == False)
                     .order_by(Message.created_at.desc()).first())
-                    
+
             unread = (Message.query
                       .filter_by(sender_id=p.id, receiver_id=current_user.id, is_read=False, is_deleted=False)
                       .count())
-                      
+
             conversations.append({
                 "user": p,
                 "last": last,
@@ -1340,11 +1444,11 @@ def chat(username):
 
         conversations.sort(key=lambda x: x["last"].created_at if x["last"] else datetime.min, reverse=True)
 
-        return render_template("chat.html", 
-                             partner=partner, 
-                             messages=messages,
-                             conversations=conversations,
-                             is_blocked=is_blocked)
+        return render_template("chat.html",
+                               partner=partner,
+                               messages=messages,
+                               conversations=conversations,
+                               is_blocked=is_blocked)
 
     except Exception as e:
         logger.error(f"Ошибка в chat: {e}")
@@ -1359,7 +1463,7 @@ def send_message(username):
     try:
         partner = User.query.filter(
             func.lower(User.username) == username.lower()).first_or_404()
-            
+
         # Check if user is blocked
         if current_user.is_blocked(partner):
             return jsonify({"error": "Cannot send message to blocked user"}), 403
@@ -1435,16 +1539,16 @@ def delete_message(message_id):
     """Delete a message (soft delete)"""
     try:
         msg = Message.query.get_or_404(message_id)
-        
+
         # Only allow deleting own messages
         if msg.sender_id != current_user.id:
             return jsonify({"error": "Cannot delete other's messages"}), 403
-            
+
         msg.is_deleted = True
         db.session.commit()
-        
+
         return jsonify({"success": True})
-        
+
     except Exception as e:
         logger.error(f"Ошибка при удалении сообщения: {e}")
         return jsonify({"error": str(e)}), 500
@@ -1458,22 +1562,22 @@ def forward_message(message_id):
     try:
         data = request.get_json()
         to_user_id = data.get('to_user_id')
-        
+
         original_msg = Message.query.get_or_404(message_id)
-        
+
         # Check if user can forward this message
         if original_msg.sender_id != current_user.id and original_msg.receiver_id != current_user.id:
             return jsonify({"error": "Cannot forward this message"}), 403
-            
+
         target_user = User.query.get_or_404(to_user_id)
-        
+
         # Check if target user is blocked
         if current_user.is_blocked(target_user):
             return jsonify({"error": "Cannot forward to blocked user"}), 403
-        
+
         # Create forwarded message
         forward_text = f"[Forwarded] {original_msg.content}" if original_msg.content else "[Forwarded Media]"
-        
+
         new_msg = Message(
             sender_id=current_user.id,
             receiver_id=target_user.id,
@@ -1482,9 +1586,9 @@ def forward_message(message_id):
         )
         db.session.add(new_msg)
         db.session.commit()
-        
+
         return jsonify({"success": True, "message_id": new_msg.id})
-        
+
     except Exception as e:
         logger.error(f"Ошибка при пересылке сообщения: {e}")
         return jsonify({"error": str(e)}), 500
@@ -1570,7 +1674,7 @@ def join_group(slug):
         g.members.append(current_user)
         db.session.commit()
         flash(f"Вы присоединились к группе '{g.name}'", "success")
-        
+
         # Send group update
         send_group_update(g.id, {
             "type": "member_joined",
@@ -1595,7 +1699,7 @@ def leave_group(slug):
         g.members.remove(current_user)
         db.session.commit()
         flash(f"Вы покинули группу '{g.name}'", "info")
-        
+
         # Send group update
         send_group_update(g.id, {
             "type": "member_left",
@@ -1678,7 +1782,7 @@ def group_post(slug):
                 text=f"New post in {g.name}"
             )
             db.session.add(notif)
-            
+
             # Отправляем WebSocket уведомление
             send_notification(member.id, {
                 "type": "group_post",
@@ -1779,7 +1883,7 @@ def subscribe_channel(slug):
         c.subscribers.remove(current_user)
         subscribed = False
         flash(f"Вы отписались от канала '{c.name}'", "info")
-        
+
         # Send channel update
         send_channel_update(c.id, {
             "type": "subscriber_left",
@@ -1791,7 +1895,7 @@ def subscribe_channel(slug):
         c.subscribers.append(current_user)
         subscribed = True
         flash(f"Вы подписались на канал '{c.name}'", "success")
-        
+
         # Send channel update
         send_channel_update(c.id, {
             "type": "subscriber_joined",
@@ -1865,7 +1969,7 @@ def channel_publish(slug):
                 text=f"New post in {c.name}"
             )
             db.session.add(notif)
-            
+
             # Отправляем WebSocket уведомление
             send_notification(subscriber.id, {
                 "type": "channel_post",
@@ -1904,6 +2008,53 @@ def notifications():
     db.session.commit()
 
     return render_template("notifications.html", notifs=notifs)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Debug endpoint for uploads
+# ──────────────────────────────────────────────────────────────────────────────
+@app.route("/debug/uploads")
+@login_required
+def debug_uploads():
+    """Debug endpoint to check uploaded files"""
+    # Only allow admin user for security
+    if current_user.username != 'admin':
+        abort(403)
+
+    upload_folder = app.config['UPLOAD_FOLDER']
+    result = {
+        "upload_folder": upload_folder,
+        "exists": os.path.exists(upload_folder),
+        "is_render": is_render,
+        "subfolders": {}
+    }
+
+    if os.path.exists(upload_folder):
+        for subfolder in UPLOAD_SUBFOLDERS:
+            path = os.path.join(upload_folder, subfolder)
+            if os.path.exists(path):
+                try:
+                    files = os.listdir(path)[-20:]  # Last 20 files
+                    result['subfolders'][subfolder] = {
+                        "path": path,
+                        "exists": True,
+                        "writable": os.access(path, os.W_OK),
+                        "file_count": len(os.listdir(path)),
+                        "recent_files": files
+                    }
+                except Exception as e:
+                    result['subfolders'][subfolder] = {
+                        "path": path,
+                        "exists": True,
+                        "error": str(e)
+                    }
+            else:
+                result['subfolders'][subfolder] = {
+                    "path": path,
+                    "exists": False
+                }
+
+    return jsonify(result)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2025,7 +2176,7 @@ def too_many(e):
 @app.errorhandler(413)
 def too_large(e):
     return render_template("error.html", code=413,
-                           msg="File too large. Maximum upload size is 500 MB."), 413
+                           msg="File too large. Maximum upload size is 100 MB."), 413
 
 
 @app.errorhandler(500)
@@ -2050,22 +2201,22 @@ def init_app():
     """Инициализация приложения и создание необходимых файлов и папок."""
     with app.app_context():
         try:
-            # Создаем папку instance если её нет (только для разработки)
-            if not is_render:
-                os.makedirs(os.path.join(basedir, 'instance'), exist_ok=True)
-
             # Создаем таблицы
             db.create_all()
             print("✅ Таблицы созданы успешно")
 
-            # Создаем папки для загрузок (только для локальной разработки)
-            if not is_render:
-                folders = ['avatars', 'images', 'videos', 'covers', 'groups', 
-                          'channels', 'chat_images', 'group_covers', 'channel_covers']
-                for folder in folders:
-                    path = os.path.join(app.config['UPLOAD_FOLDER'], folder)
-                    os.makedirs(path, exist_ok=True)
-                    print(f"✅ Папка создана: {path}")
+            # Создаем все папки для загрузок
+            ensure_upload_folders()
+
+            # Проверяем права доступа
+            test_file = os.path.join(app.config['UPLOAD_FOLDER'], 'test.txt')
+            try:
+                with open(test_file, 'w') as f:
+                    f.write('test')
+                os.remove(test_file)
+                print("✅ Права записи в UPLOAD_FOLDER есть")
+            except Exception as e:
+                print(f"❌ Нет прав записи в UPLOAD_FOLDER: {e}")
 
             print("✅ Инициализация завершена")
 
@@ -2076,12 +2227,13 @@ def init_app():
 
 if __name__ == "__main__":
     init_app()
-    
+
     # Определяем порт для Render
     port = int(os.environ.get("PORT", 5000))
-    
+
     print("🚀 Запуск Kildear Social Network...")
     print(f"🌐 Сервер запускается на порту {port}")
+    print(f"📁 Папка загрузок: {app.config['UPLOAD_FOLDER']}")
     print("📝 Для остановки сервера нажмите Ctrl+C")
 
     socketio.run(app,
