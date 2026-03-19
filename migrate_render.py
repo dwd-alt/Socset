@@ -1,4 +1,3 @@
-
 # migrate_render.py
 from app import app, db
 from sqlalchemy import text
