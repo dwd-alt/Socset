@@ -1,0 +1,143 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Управление пользователями — Kildear Admin{% endblock %}
+{% block header %}Управление пользователями{% endblock %}
+
+{% block content %}
+<!-- Search -->
+<div class="admin-search">
+    <form method="GET" style="display: flex; gap: 10px; width: 100%;">
+        <input type="text" name="search" placeholder="Поиск по имени, email или username..." value="{{ search }}">
+        <button type="submit"><i class="fa-solid fa-search"></i> Поиск</button>
+    </form>
+</div>
+
+<!-- Users Table -->
+<div class="admin-table-container">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Пользователь</th>
+                <th>Email</th>
+                <th>Статус</th>
+                <th>Подписчики</th>
+                <th>Посты</th>
+                <th>Дата</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users.items %}
+            <tr>
+                <td>#{{ user.id }}</td>
+                <td>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <img src="{{ user.avatar or '/static/default_avatar.png' }}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
+                        <div>
+                            <strong>{{ user.display_name or user.username }}</strong>
+                            <div style="font-size: 12px; color: #7f8c8d;">@{{ user.username }}</div>
+                        </div>
+                    </div>
+                </td>
+                <td>{{ user.email }}</td>
+                <td>
+                    {% if user.is_banned %}
+                    <span class="badge badge-danger">Забанен</span>
+                    {% elif user.is_verified %}
+                    <span class="badge badge-success">Верифицирован</span>
+                    {% elif user.is_admin %}
+                    <span class="badge badge-info">Админ</span>
+                    {% else %}
+                    <span class="badge badge-warning">Активен</span>
+                    {% endif %}
+                </td>
+                <td>{{ user.follower_count }}</td>
+                <td>{{ user.post_count }}</td>
+                <td>{{ user.created_at|timeago }}</td>
+                <td>
+                    <div style="display: flex; gap: 5px;">
+                        {% if not user.is_admin or user.id != current_user.id %}
+                            {% if user.is_banned %}
+                            <form method="POST" action="{{ url_for('admin_toggle_ban', user_id=user.id) }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="admin-btn admin-btn-success" style="padding: 4px 8px; font-size: 11px;" onclick="return confirm('Разбанить пользователя {{ user.username }}?')">
+                                    <i class="fa-solid fa-check"></i> Разбанить
+                                </button>
+                            </form>
+                            {% else %}
+                            <form method="POST" action="{{ url_for('admin_toggle_ban', user_id=user.id) }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="admin-btn admin-btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="return confirm('Забанить пользователя {{ user.username }}?')">
+                                    <i class="fa-solid fa-ban"></i> Забанить
+                                </button>
+                            </form>
+                            {% endif %}
+
+                            {% if user.is_verified %}
+                            <form method="POST" action="{{ url_for('admin_toggle_verify', user_id=user.id) }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="admin-btn admin-btn-warning" style="padding: 4px 8px; font-size: 11px;" onclick="return confirm('Снять верификацию с {{ user.username }}?')">
+                                    <i class="fa-solid fa-circle-check"></i> Снять
+                                </button>
+                            </form>
+                            {% else %}
+                            <form method="POST" action="{{ url_for('admin_toggle_verify', user_id=user.id) }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="admin-btn admin-btn-success" style="padding: 4px 8px; font-size: 11px;" onclick="return confirm('Верифицировать пользователя {{ user.username }}?')">
+                                    <i class="fa-solid fa-check-circle"></i> Галочка
+                                </button>
+                            </form>
+                            {% endif %}
+
+                            {% if user.is_admin %}
+                            <form method="POST" action="{{ url_for('admin_toggle_admin', user_id=user.id) }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="admin-btn admin-btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="return confirm('Лишить прав администратора {{ user.username }}?')">
+                                    <i class="fa-solid fa-crown"></i> Снять
+                                </button>
+                            </form>
+                            {% else %}
+                            <form method="POST" action="{{ url_for('admin_toggle_admin', user_id=user.id) }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="admin-btn admin-btn-primary" style="padding: 4px 8px; font-size: 11px;" onclick="return confirm('Назначить администратором {{ user.username }}?')">
+                                    <i class="fa-solid fa-crown"></i> Назначить
+                                </button>
+                            </form>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Pagination -->
+    {% if users.pages > 1 %}
+    <div class="pagination">
+        {% if users.has_prev %}
+        <a href="{{ url_for('admin_users', page=users.prev_num, search=search) }}" class="page-btn">
+            <i class="fa-solid fa-chevron-left"></i>
+        </a>
+        {% endif %}
+
+        {% for page_num in users.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+            {% if page_num %}
+                <a href="{{ url_for('admin_users', page=page_num, search=search) }}" class="page-btn {% if page_num == users.page %}active{% endif %}">
+                    {{ page_num }}
+                </a>
+            {% else %}
+                <span class="page-btn">...</span>
+            {% endif %}
+        {% endfor %}
+
+        {% if users.has_next %}
+        <a href="{{ url_for('admin_users', page=users.next_num, search=search) }}" class="page-btn">
+            <i class="fa-solid fa-chevron-right"></i>
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -579,6 +579,134 @@ def save_file(file, subfolder: str):
 # ──────────────────────────────────────────────────────────────────────────────
 #  Маршрут для доступа к загруженным файлам
 # ──────────────────────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Report Routes (для пользователей)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.route("/report/user/<int:user_id>", methods=["GET", "POST"])
+@login_required
+def report_user(user_id):
+    """Пожаловаться на пользователя"""
+    reported_user = User.query.get_or_404(user_id)
+
+    if reported_user.id == current_user.id:
+        flash("Нельзя пожаловаться на самого себя", "error")
+        return redirect(url_for("profile", username=reported_user.username))
+
+    if request.method == "POST":
+        reason = request.form.get("reason")
+        description = request.form.get("description", "")
+
+        if not reason:
+            flash("Укажите причину жалобы", "error")
+            return redirect(url_for("report_user", user_id=user_id))
+
+        report = Report(
+            reporter_id=current_user.id,
+            reported_user_id=reported_user.id,
+            reason=reason,
+            description=description,
+            status='pending'
+        )
+        db.session.add(report)
+        db.session.commit()
+
+        flash(f"Жалоба на пользователя {reported_user.username} отправлена", "success")
+        return redirect(url_for("profile", username=reported_user.username))
+
+    reasons = [
+        ("spam", "Спам"),
+        ("harassment", "Домогательство"),
+        ("hate_speech", "Разжигание ненависти"),
+        ("violence", "Насилие"),
+        ("scam", "Мошенничество"),
+        ("fake_account", "Фейковый аккаунт"),
+        ("other", "Другое")
+    ]
+
+    return render_template("report_user.html", user=reported_user, reasons=reasons)
+
+
+@app.route("/report/post/<int:post_id>", methods=["GET", "POST"])
+@login_required
+def report_post(post_id):
+    """Пожаловаться на пост"""
+    post = Post.query.get_or_404(post_id)
+
+    if post.user_id == current_user.id:
+        flash("Нельзя пожаловаться на свой пост", "error")
+        return redirect(url_for("view_post", post_id=post_id))
+
+    if request.method == "POST":
+        reason = request.form.get("reason")
+        description = request.form.get("description", "")
+
+        if not reason:
+            flash("Укажите причину жалобы", "error")
+            return redirect(url_for("report_post", post_id=post_id))
+
+        report = Report(
+            reporter_id=current_user.id,
+            reported_user_id=post.user_id,
+            post_id=post.id,
+            reason=reason,
+            description=description,
+            status='pending'
+        )
+        db.session.add(report)
+        db.session.commit()
+
+        flash(f"Жалоба на пост отправлена", "success")
+        return redirect(url_for("view_post", post_id=post_id))
+
+    reasons = [
+        ("spam", "Спам"),
+        ("harassment", "Домогательство"),
+        ("hate_speech", "Разжигание ненависти"),
+        ("violence", "Насилие"),
+        ("nsfw", "Неприемлемый контент"),
+        ("copyright", "Нарушение авторских прав"),
+        ("other", "Другое")
+    ]
+
+    return render_template("report_post.html", post=post, reasons=reasons)
+
+
+@app.route("/report/comment/<int:comment_id>", methods=["GET", "POST"])
+@login_required
+def report_comment(comment_id):
+    """Пожаловаться на комментарий"""
+    comment = Comment.query.get_or_404(comment_id)
+
+    if comment.user_id == current_user.id:
+        flash("Нельзя пожаловаться на свой комментарий", "error")
+        return redirect(url_for("view_post", post_id=comment.post_id))
+
+    if request.method == "POST":
+        reason = request.form.get("reason")
+        description = request.form.get("description", "")
+
+        if not reason:
+            flash("Укажите причину жалобы", "error")
+            return redirect(url_for("report_comment", comment_id=comment_id))
+
+        report = Report(
+            reporter_id=current_user.id,
+            reported_user_id=comment.user_id,
+            comment_id=comment.id,
+            reason=reason,
+            description=description,
+            status='pending'
+        )
+        db.session.add(report)
+        db.session.commit()
+
+        flash(f"Жалоба на комментарий отправлена", "success")
+        return redirect(url_for("view_post", post_id=comment.post_id))
+
+    return render_template("report_comment.html", comment=comment)
+
 @app.route('/uploads/<path:subfolder>/<path:filename>')
 def serve_upload(subfolder, filename):
     if subfolder not in UPLOAD_SUBFOLDERS:
@@ -669,15 +797,24 @@ def load_user(user_id):
 def inject_globals():
     unread = 0
     notif_count = 0
+    stats = {}
+
     if current_user.is_authenticated:
         unread = Message.query.filter_by(
             receiver_id=current_user.id, is_read=False, is_deleted=False).count()
         notif_count = Notification.query.filter_by(
             user_id=current_user.id, is_read=False).count()
 
+        # Для админа добавляем статистику
+        if current_user.is_admin:
+            stats['total_reports'] = Report.query.filter_by(status='pending').count()
+            stats['pending_verification'] = User.query.filter_by(is_verified=False, is_banned=False).count()
+            stats['banned_users'] = User.query.filter_by(is_banned=True).count()
+
     return dict(
         unread_messages=unread,
         notif_count=notif_count,
+        stats=stats,
         csrf_token=generate_csrf,
         notification_link=notification_link,
         notification_icon=notification_icon,
@@ -728,6 +865,81 @@ def mark_all_notifications_read():
 # ──────────────────────────────────────────────────────────────────────────────
 #  Admin Routes
 # ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+#  Admin Routes (дополнительные)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.route("/admin/verification")
+@login_required
+@admin_required
+def admin_verification():
+    """Пользователи, ожидающие верификации"""
+    page = request.args.get("page", 1, type=int)
+    users = User.query.filter_by(is_verified=False, is_banned=False).order_by(User.created_at.desc()).paginate(
+        page=page, per_page=20)
+    return render_template("admin/verification.html", users=users)
+
+
+@app.route("/admin/banned")
+@login_required
+@admin_required
+def admin_banned():
+    """Забаненные пользователи"""
+    page = request.args.get("page", 1, type=int)
+    users = User.query.filter_by(is_banned=True).order_by(User.last_seen.desc()).paginate(page=page, per_page=20)
+    return render_template("admin/banned.html", users=users)
+
+
+@app.route("/admin/admins")
+@login_required
+@admin_required
+def admin_admins():
+    """Список администраторов"""
+    admins = User.query.filter_by(is_admin=True).order_by(User.created_at).all()
+    return render_template("admin/admins.html", admins=admins)
+
+
+@app.route("/admin/logs")
+@login_required
+@admin_required
+def admin_logs():
+    """История входов"""
+    page = request.args.get("page", 1, type=int)
+    logs = LoginHistory.query.order_by(LoginHistory.created_at.desc()).paginate(page=page, per_page=50)
+    return render_template("admin/logs.html", logs=logs)
+
+
+@app.route("/admin/user/<int:user_id>/toggle-verify", methods=["POST"])
+@login_required
+@admin_required
+def admin_toggle_verify(user_id):
+    """Дать/снять галочку верификации"""
+    user = User.query.get_or_404(user_id)
+    user.is_verified = not user.is_verified
+    db.session.commit()
+
+    status = "верифицирован" if user.is_verified else "снята верификация"
+    flash(f"Пользователь {user.username} {status}", "success")
+    return redirect(request.referrer or url_for("admin_users"))
+
+
+@app.route("/admin/user/<int:user_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def admin_delete_user(user_id):
+    """Полное удаление пользователя (осторожно!)"""
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        flash("Нельзя удалить самого себя", "error")
+        return redirect(url_for("admin_users"))
+
+    username = user.username
+    db.session.delete(user)
+    db.session.commit()
+
+    flash(f"Пользователь {username} полностью удален", "success")
+    return redirect(url_for("admin_users"))
+
 @app.route("/admin")
 @login_required
 @admin_required

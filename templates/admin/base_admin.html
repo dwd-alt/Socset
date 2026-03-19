@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Admin Panel — Kildear{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #0a0a0f;
+            color: #fff;
+        }
+
+        .admin-layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .admin-sidebar {
+            width: 280px;
+            background: #11131f;
+            border-right: 1px solid #2a2a3a;
+            padding: 30px 0;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .admin-logo {
+            padding: 0 20px 30px;
+            border-bottom: 1px solid #2a2a3a;
+            margin-bottom: 20px;
+        }
+
+        .admin-logo h2 {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #6c63ff, #9b8fff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .admin-logo p {
+            color: #7f8c8d;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+
+        .admin-nav {
+            list-style: none;
+        }
+
+        .admin-nav-item {
+            margin: 5px 0;
+        }
+
+        .admin-nav-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            color: #b4b4c0;
+            text-decoration: none;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .admin-nav-link:hover {
+            background: rgba(108, 99, 255, 0.1);
+            color: #fff;
+            border-left-color: #6c63ff;
+        }
+
+        .admin-nav-link.active {
+            background: rgba(108, 99, 255, 0.15);
+            color: #fff;
+            border-left-color: #6c63ff;
+        }
+
+        .admin-nav-link i {
+            width: 20px;
+            font-size: 1.1rem;
+        }
+
+        .admin-badge {
+            margin-left: auto;
+            background: #6c63ff;
+            color: white;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 10px;
+        }
+
+        /* Main Content */
+        .admin-main {
+            flex: 1;
+            margin-left: 280px;
+            padding: 30px;
+        }
+
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #2a2a3a;
+        }
+
+        .admin-header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            background: linear-gradient(135deg, #fff, #b4b4c0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .admin-user {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .admin-user img {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        .admin-user-info {
+            text-align: right;
+        }
+
+        .admin-user-name {
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+
+        .admin-user-role {
+            font-size: 12px;
+            color: #6c63ff;
+        }
+
+        /* Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: #11131f;
+            border: 1px solid #2a2a3a;
+            border-radius: 12px;
+            padding: 20px;
+            transition: transform 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            border-color: #6c63ff;
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            background: rgba(108, 99, 255, 0.1);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+
+        .stat-icon i {
+            font-size: 24px;
+            color: #6c63ff;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+
+        /* Tables */
+        .admin-table-container {
+            background: #11131f;
+            border: 1px solid #2a2a3a;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 30px;
+        }
+
+        .admin-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .admin-table th {
+            text-align: left;
+            padding: 15px 20px;
+            background: #0f0f1a;
+            color: #b4b4c0;
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .admin-table td {
+            padding: 15px 20px;
+            border-top: 1px solid #2a2a3a;
+            color: #fff;
+        }
+
+        .admin-table tr:hover td {
+            background: rgba(108, 99, 255, 0.05);
+        }
+
+        /* Badges */
+        .badge {
+            padding: 4px 8px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: rgba(74, 222, 128, 0.15);
+            color: #4ade80;
+        }
+
+        .badge-warning {
+            background: rgba(251, 146, 60, 0.15);
+            color: #fb923c;
+        }
+
+        .badge-danger {
+            background: rgba(255, 107, 107, 0.15);
+            color: #ff6b6b;
+        }
+
+        .badge-info {
+            background: rgba(108, 99, 255, 0.15);
+            color: #6c63ff;
+        }
+
+        /* Buttons */
+        .admin-btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: none;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .admin-btn-primary {
+            background: #6c63ff;
+            color: white;
+        }
+
+        .admin-btn-primary:hover {
+            background: #5a52d5;
+            transform: translateY(-2px);
+        }
+
+        .admin-btn-danger {
+            background: rgba(255, 107, 107, 0.15);
+            color: #ff6b6b;
+            border: 1px solid rgba(255, 107, 107, 0.3);
+        }
+
+        .admin-btn-danger:hover {
+            background: rgba(255, 107, 107, 0.25);
+        }
+
+        .admin-btn-success {
+            background: rgba(74, 222, 128, 0.15);
+            color: #4ade80;
+            border: 1px solid rgba(74, 222, 128, 0.3);
+        }
+
+        .admin-btn-success:hover {
+            background: rgba(74, 222, 128, 0.25);
+        }
+
+        .admin-btn-warning {
+            background: rgba(251, 146, 60, 0.15);
+            color: #fb923c;
+            border: 1px solid rgba(251, 146, 60, 0.3);
+        }
+
+        .admin-btn-warning:hover {
+            background: rgba(251, 146, 60, 0.25);
+        }
+
+        /* Search */
+        .admin-search {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .admin-search input {
+            flex: 1;
+            padding: 12px 16px;
+            background: #11131f;
+            border: 1px solid #2a2a3a;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 14px;
+        }
+
+        .admin-search input:focus {
+            outline: none;
+            border-color: #6c63ff;
+        }
+
+        .admin-search button {
+            padding: 12px 24px;
+            background: #6c63ff;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .page-btn {
+            padding: 8px 12px;
+            background: #11131f;
+            border: 1px solid #2a2a3a;
+            border-radius: 6px;
+            color: #b4b4c0;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .page-btn:hover {
+            border-color: #6c63ff;
+            color: #fff;
+        }
+
+        .page-btn.active {
+            background: #6c63ff;
+            color: white;
+            border-color: #6c63ff;
+        }
+
+        /* Flash messages */
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid;
+        }
+
+        .alert-success {
+            background: rgba(74, 222, 128, 0.1);
+            border-color: #4ade80;
+            color: #fff;
+        }
+
+        .alert-error {
+            background: rgba(255, 107, 107, 0.1);
+            border-color: #ff6b6b;
+            color: #fff;
+        }
+
+        .alert-info {
+            background: rgba(108, 99, 255, 0.1);
+            border-color: #6c63ff;
+            color: #fff;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .admin-sidebar {
+                display: none;
+            }
+            .admin-main {
+                margin-left: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-layout">
+        <!-- Sidebar -->
+        <div class="admin-sidebar">
+            <div class="admin-logo">
+                <h2>Kildear Admin</h2>
+                <p>Управление социальной сетью</p>
+            </div>
+
+            <ul class="admin-nav">
+                <li class="admin-nav-item">
+                    <a href="{{ url_for('admin_dashboard') }}" class="admin-nav-link {% if request.endpoint == 'admin_dashboard' %}active{% endif %}">
+                        <i class="fa-solid fa-chart-pie"></i>
+                        <span>Дашборд</span>
+                    </a>
+                </li>
+                <li class="admin-nav-item">
+                    <a href="{{ url_for('admin_users') }}" class="admin-nav-link {% if request.endpoint == 'admin_users' %}active{% endif %}">
+                        <i class="fa-solid fa-users"></i>
+                        <span>Пользователи</span>
+                        <span class="admin-badge">{{ stats.total_users if stats else 0 }}</span>
+                    </a>
+                </li>
+                <li class="admin-nav-item">
+                    <a href="{{ url_for('admin_reports') }}" class="admin-nav-link {% if request.endpoint == 'admin_reports' %}active{% endif %}">
+                        <i class="fa-solid fa-flag"></i>
+                        <span>Жалобы</span>
+                        {% if stats and stats.total_reports %}
+                        <span class="admin-badge">{{ stats.total_reports }}</span>
+                        {% endif %}
+                    </a>
+                </li>
+                <li class="admin-nav-item">
+                    <a href="{{ url_for('admin_verification') }}" class="admin-nav-link {% if request.endpoint == 'admin_verification' %}active{% endif %}">
+                        <i class="fa-solid fa-check-circle"></i>
+                        <span>Верификация</span>
+                        {% if stats and stats.pending_verification %}
+                        <span class="admin-badge">{{ stats.pending_verification }}</span>
+                        {% endif %}
+                    </a>
+                </li>
+                <li class="admin-nav-item">
+                    <a href="{{ url_for('admin_banned') }}" class="admin-nav-link {% if request.endpoint == 'admin_banned' %}active{% endif %}">
+                        <i class="fa-solid fa-ban"></i>
+                        <span>Забаненные</span>
+                        {% if stats and stats.banned_users %}
+                        <span class="admin-badge">{{ stats.banned_users }}</span>
+                        {% endif %}
+                    </a>
+                </li>
+                <li class="admin-nav-item">
+                    <a href="{{ url_for('admin_logs') }}" class="admin-nav-link {% if request.endpoint == 'admin_logs' %}active{% endif %}">
+                        <i class="fa-solid fa-history"></i>
+                        <span>История входов</span>
+                    </a>
+                </li>
+                <li class="admin-nav-item">
+                    <a href="{{ url_for('index') }}" class="admin-nav-link">
+                        <i class="fa-solid fa-arrow-left"></i>
+                        <span>На сайт</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Main Content -->
+        <div class="admin-main">
+            <div class="admin-header">
+                <h1>{% block header %}Панель управления{% endblock %}</h1>
+                <div class="admin-user">
+                    <div class="admin-user-info">
+                        <div class="admin-user-name">{{ current_user.display_name or current_user.username }}</div>
+                        <div class="admin-user-role">Администратор</div>
+                    </div>
+                    <img src="{{ current_user.avatar or '/static/default_avatar.png' }}" alt="Admin">
+                </div>
+            </div>
+
+            <!-- Flash messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+</body>
+</html>

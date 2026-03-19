@@ -1,0 +1,63 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Верификация — Kildear Admin{% endblock %}
+
+{% block header %}Верификация пользователей{% endblock %}
+
+{% block content %}
+<div class="admin-table-container">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Пользователь</th>
+                <th>Email</th>
+                <th>Дата регистрации</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users.items %}
+            <tr>
+                <td>#{{ user.id }}</td>
+                <td>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <img src="{{ user.avatar or '/static/default_avatar.png' }}" style="width: 40px; height: 40px; border-radius: 50%;">
+                        <div>
+                            <strong>{{ user.display_name or user.username }}</strong>
+                            <div style="font-size: 12px; color: #7f8c8d;">@{{ user.username }}</div>
+                        </div>
+                    </div>
+                </td>
+                <td>{{ user.email }}</td>
+                <td>{{ user.created_at|timeago }}</td>
+                <td>
+                    <form method="POST" action="{{ url_for('admin_toggle_verify', user_id=user.id) }}" style="display: inline;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="admin-btn admin-btn-success" onclick="return confirm('Верифицировать пользователя {{ user.username }}?')">
+                            <i class="fa-solid fa-check-circle"></i> Дать галочку
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5" style="text-align: center; color: #7f8c8d;">Нет пользователей, ожидающих верификации</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if users.pages > 1 %}
+    <div class="pagination">
+        {% if users.has_prev %}
+        <a href="{{ url_for('admin_verification', page=users.prev_num) }}" class="page-btn">←</a>
+        {% endif %}
+        <span class="page-btn active">{{ users.page }}</span>
+        {% if users.has_next %}
+        <a href="{{ url_for('admin_verification', page=users.next_num) }}" class="page-btn">→</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

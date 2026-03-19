@@ -1,0 +1,100 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Жалобы — Kildear Admin{% endblock %}
+{% block header %}Управление жалобами{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="admin-search">
+    <form method="GET" style="display: flex; gap: 10px; width: 100%;">
+        <select name="status" style="padding: 12px; background: #11131f; border: 1px solid #2a2a3a; border-radius: 8px; color: #fff;">
+            <option value="pending" {% if current_status == 'pending' %}selected{% endif %}>Ожидающие</option>
+            <option value="reviewed" {% if current_status == 'reviewed' %}selected{% endif %}>Рассмотренные</option>
+            <option value="dismissed" {% if current_status == 'dismissed' %}selected{% endif %}>Отклоненные</option>
+            <option value="all" {% if current_status == 'all' %}selected{% endif %}>Все</option>
+        </select>
+        <button type="submit"><i class="fa-solid fa-filter"></i> Применить</button>
+    </form>
+</div>
+
+<!-- Reports Table -->
+<div class="admin-table-container">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Отправитель</th>
+                <th>Нарушитель</th>
+                <th>Причина</th>
+                <th>Описание</th>
+                <th>Статус</th>
+                <th>Дата</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for report in reports %}
+            <tr>
+                <td>#{{ report.id }}</td>
+                <td>
+                    <div style="display: flex; align-items: center; gap: 5px;">
+                        <img src="{{ report.reporter.avatar or '/static/default_avatar.png' }}" style="width: 24px; height: 24px; border-radius: 50%;">
+                        <span>@{{ report.reporter.username }}</span>
+                    </div>
+                </td>
+                <td>
+                    {% if report.reported_user %}
+                    <div style="display: flex; align-items: center; gap: 5px;">
+                        <img src="{{ report.reported_user.avatar or '/static/default_avatar.png' }}" style="width: 24px; height: 24px; border-radius: 50%;">
+                        <span>@{{ report.reported_user.username }}</span>
+                    </div>
+                    {% else %}
+                    <span class="badge badge-warning">Пользователь удален</span>
+                    {% endif %}
+                </td>
+                <td><strong>{{ report.reason }}</strong></td>
+                <td style="max-width: 200px;">{{ report.description or 'Нет описания' }}</td>
+                <td>
+                    {% if report.status == 'pending' %}
+                    <span class="badge badge-warning">Ожидает</span>
+                    {% elif report.status == 'reviewed' %}
+                    <span class="badge badge-success">Рассмотрено</span>
+                    {% elif report.status == 'dismissed' %}
+                    <span class="badge badge-danger">Отклонено</span>
+                    {% endif %}
+                </td>
+                <td>{{ report.created_at|timeago }}</td>
+                <td>
+                    {% if report.status == 'pending' %}
+                    <div style="display: flex; gap: 5px;">
+                        <form method="POST" action="{{ url_for('admin_review_report', report_id=report.id) }}" style="display: inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="approve">
+                            <button type="submit" class="admin-btn admin-btn-success" style="padding: 4px 8px; font-size: 11px;" onclick="return confirm('Подтвердить жалобу и принять меры?')">
+                                <i class="fa-solid fa-check"></i> Принять
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ url_for('admin_review_report', report_id=report.id) }}" style="display: inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="dismiss">
+                            <button type="submit" class="admin-btn admin-btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="return confirm('Отклонить жалобу?')">
+                                <i class="fa-solid fa-times"></i> Отклонить
+                            </button>
+                        </form>
+                    </div>
+                    {% else %}
+                    <span class="badge badge-info">
+                        Рассмотрено: @{{ report.reviewer.username if report.reviewer else 'System' }}
+                    </span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8" style="text-align: center; color: #7f8c8d;">Жалоб не найдено</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,70 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}История входов — Kildear Admin{% endblock %}
+{% block header %}История входов{% endblock %}
+
+{% block content %}
+<div class="admin-table-container">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Пользователь</th>
+                <th>IP адрес</th>
+                <th>Устройство</th>
+                <th>Статус</th>
+                <th>Время</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in logs.items %}
+            <tr>
+                <td>#{{ log.id }}</td>
+                <td>
+                    {% if log.user %}
+                    <div style="display: flex; align-items: center; gap: 5px;">
+                        <img src="{{ log.user.avatar or '/static/default_avatar.png' }}" style="width: 24px; height: 24px; border-radius: 50%;">
+                        <span>@{{ log.user.username }}</span>
+                    </div>
+                    {% else %}
+                    <span class="badge badge-danger">Удален</span>
+                    {% endif %}
+                </td>
+                <td>{{ log.ip_address }}</td>
+                <td style="max-width: 200px;">{{ log.user_agent[:50] }}...</td>
+                <td>
+                    {% if log.success %}
+                    <span class="badge badge-success">Успешно</span>
+                    {% else %}
+                    <span class="badge badge-danger">Ошибка</span>
+                    {% endif %}
+                </td>
+                <td>{{ log.created_at|timeago }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if logs.pages > 1 %}
+    <div class="pagination">
+        {% if logs.has_prev %}
+        <a href="{{ url_for('admin_logs', page=logs.prev_num) }}" class="page-btn">←</a>
+        {% endif %}
+
+        {% for page_num in logs.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+            {% if page_num %}
+                <a href="{{ url_for('admin_logs', page=page_num) }}" class="page-btn {% if page_num == logs.page %}active{% endif %}">
+                    {{ page_num }}
+                </a>
+            {% else %}
+                <span class="page-btn">...</span>
+            {% endif %}
+        {% endfor %}
+
+        {% if logs.has_next %}
+        <a href="{{ url_for('admin_logs', page=logs.next_num) }}" class="page-btn">→</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

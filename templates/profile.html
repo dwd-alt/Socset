@@ -115,6 +115,27 @@
   }
   .btn-follow.unfollow-state:hover { border-color: var(--danger); color: var(--danger); }
 
+  .btn-report {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 9px 16px;
+    border-radius: 99px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    text-decoration: none;
+  }
+  .btn-report:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+    background: rgba(255, 71, 87, 0.05);
+  }
+
   /* Tabs */
   .profile-tabs {
     display: flex;
@@ -273,18 +294,24 @@
             <i class="fa-solid fa-pen"></i> Edit Profile
           </a>
         {% else %}
-          <button class="btn-follow {% if is_following %}unfollow-state{% else %}follow-state{% endif %}"
-                  id="followBtn"
-                  onclick="toggleFollow('{{ user.username }}')">
-            {% if is_following %}
-              <i class="fa-solid fa-user-minus"></i> Unfollow
-            {% else %}
-              <i class="fa-solid fa-user-plus"></i> Follow
-            {% endif %}
-          </button>
-          <a href="{{ url_for('chat', username=user.username) }}" class="btn btn-outline btn-sm">
-            <i class="fa-solid fa-message"></i> Message
-          </a>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn-follow {% if is_following %}unfollow-state{% else %}follow-state{% endif %}"
+                    id="followBtn"
+                    onclick="toggleFollow('{{ user.username }}')">
+              {% if is_following %}
+                <i class="fa-solid fa-user-minus"></i> Unfollow
+              {% else %}
+                <i class="fa-solid fa-user-plus"></i> Follow
+              {% endif %}
+            </button>
+            <a href="{{ url_for('chat', username=user.username) }}" class="btn btn-outline btn-sm">
+              <i class="fa-solid fa-message"></i> Message
+            </a>
+            <!-- Кнопка "Пожаловаться" для обычных пользователей -->
+            <a href="{{ url_for('report_user', user_id=user.id) }}" class="btn-report">
+              <i class="fa-solid fa-flag"></i> Report
+            </a>
+          </div>
         {% endif %}
       </div>
     </div>
@@ -395,7 +422,10 @@ function toggleFollow(username) {
   const btn = document.getElementById('followBtn');
   fetch(`/follow/${username}`, {
     method: 'POST',
-    headers: { 'X-CSRFToken': '{{ csrf_token() }}', 'Content-Type': 'application/json' },
+    headers: {
+      'X-CSRFToken': '{{ csrf_token() }}',
+      'Content-Type': 'application/json'
+    },
     credentials: 'same-origin',
   })
   .then(r => r.json())
@@ -407,7 +437,18 @@ function toggleFollow(username) {
       btn.className = 'btn-follow follow-state';
       btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Follow';
     }
-  });
+  })
+  .catch(error => console.error('Error:', error));
+}
+
+function showFollowers() {
+  // Функция для показа списка подписчиков (можно добавить позже)
+  console.log('Show followers');
+}
+
+function showFollowing() {
+  // Функция для показа списка подписок (можно добавить позже)
+  console.log('Show following');
 }
 </script>
 {% endblock %}

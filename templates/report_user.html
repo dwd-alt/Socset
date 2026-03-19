@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Пожаловаться на @{{ user.username }}{% endblock %}
+
+{% block content %}
+<div class="report-container" style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div class="page-header" style="margin-bottom: 30px;">
+        <h1 style="font-size: 24px; font-weight: 700;">
+            <i class="fa-solid fa-flag" style="color: var(--danger); margin-right: 10px;"></i>
+            Пожаловаться на пользователя
+        </h1>
+    </div>
+
+    <div class="report-card" style="background: var(--card); border-radius: var(--radius-lg); padding: 30px; border: 1px solid var(--border);">
+        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 25px;">
+            <img src="{{ user.avatar or '/static/default_avatar.png' }}" style="width: 60px; height: 60px; border-radius: 50%; object-fit: cover;">
+            <div>
+                <h2 style="font-size: 18px; margin-bottom: 5px;">{{ user.display_name or user.username }}</h2>
+                <p style="color: var(--text-muted);">@{{ user.username }}</p>
+            </div>
+        </div>
+
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 8px; font-weight: 600;">Причина жалобы *</label>
+                <select name="reason" required style="width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--input-bg); color: var(--text);">
+                    <option value="">Выберите причину</option>
+                    {% for value, label in reasons %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 8px; font-weight: 600;">Описание (необязательно)</label>
+                <textarea name="description" rows="5" style="width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--input-bg); color: var(--text); resize: vertical;" placeholder="Опишите подробнее ситуацию..."></textarea>
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <a href="{{ url_for('profile', username=user.username) }}" class="btn btn-outline" style="flex: 1;">Отмена</a>
+                <button type="submit" class="btn btn-danger" style="flex: 1;">
+                    <i class="fa-solid fa-flag"></i> Отправить жалобу
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
