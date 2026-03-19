@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}{{ group.name }} — Kildear{% endblock %}
+
+{% block content %}
+<div class="group-page" style="max-width: 800px; margin: 0 auto; padding: 20px;">
+    <!-- Заголовок группы -->
+    <div class="group-header" style="background: var(--card); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 20px;">
+        {% if group.cover %}
+        <div class="group-cover" style="height: 200px; background-image: url('{{ group.cover }}'); background-size: cover; background-position: center;"></div>
+        {% else %}
+        <div class="group-cover" style="height: 200px; background: linear-gradient(135deg, var(--primary), var(--secondary));"></div>
+        {% endif %}
+
+        <div class="group-info" style="padding: 20px; position: relative;">
+            <div class="group-avatar" style="position: absolute; top: -50px; left: 20px;">
+                {% if group.avatar %}
+                <img src="{{ group.avatar }}" class="avatar avatar-xl" style="border: 4px solid var(--surface);">
+                {% else %}
+                <div class="avatar avatar-xl" style="background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 2rem; border: 4px solid var(--surface);">
+                    {{ group.name[0].upper() }}
+                </div>
+                {% endif %}
+            </div>
+
+            <div style="margin-left: 120px;">
+                <h1 style="font-size: 24px; margin-bottom: 5px;">{{ group.name }}</h1>
+                <div style="display: flex; gap: 15px; color: var(--text-muted); font-size: 14px; margin-bottom: 10px;">
+                    <span><i class="fa-regular fa-user"></i> {{ group.member_count }} members</span>
+                    <span><i class="fa-regular fa-calendar"></i> Created {{ group.created_at.strftime('%b %d, %Y') }}</span>
+                    {% if group.is_private %}
+                    <span class="badge private">🔒 Private</span>
+                    {% else %}
+                    <span class="badge public">🌍 Public</span>
+                    {% endif %}
+                </div>
+
+                {% if group.description %}
+                <p style="color: var(--text); line-height: 1.6;">{{ group.description }}</p>
+                {% endif %}
+
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    {% if is_member %}
+                        <form action="{{ url_for('leave_group', slug=group.slug) }}" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline">
+                                <i class="fa-regular fa-circle-xmark"></i> Leave Group
+                            </button>
+                        </form>
+                    {% else %}
+                        <form action="{{ url_for('join_group', slug=group.slug) }}" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fa-regular fa-hand-point-right"></i> Join Group
+                            </button>
+                        </form>
+                    {% endif %}
+
+                    {% if group.owner_id == current_user.id %}
+                    <a href="#" class="btn btn-outline">
+                        <i class="fa-regular fa-pen-to-square"></i> Edit
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Посты группы -->
+    <div class="group-posts">
+        {% if is_member %}
+        <div class="create-post" style="background: var(--card); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px;">
+            <form action="{{ url_for('group_post', slug=group.slug) }}" method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <textarea name="content" placeholder="Share something with {{ group.name }}..."
+                          style="width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--input-bg); color: var(--text); resize: vertical;"
+                          rows="3"></textarea>
+
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <input type="file" name="media" accept="image/*,video/*" style="display: none;" id="media-input">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('media-input').click()">
+                        <i class="fa-regular fa-image"></i> Add Media
+                    </button>
+                    <button type="submit" class="btn btn-primary btn-sm" style="margin-left: auto;">
+                        <i class="fa-regular fa-paper-plane"></i> Post
+                    </button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
+
+        <div class="posts-feed">
+            {% for post in posts %}
+            <div class="post-card" style="background: var(--card); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 15px;">
+                <div style="display: flex; gap: 12px; margin-bottom: 15px;">
+                    <img src="{{ post.author.avatar or '/static/default_avatar.png' }}" class="avatar avatar-sm">
+                    <div>
+                        <div style="font-weight: 600;">{{ post.author.display_name or post.author.username }}</div>
+                        <div style="font-size: 12px; color: var(--text-muted;">{{ post.created_at.strftime('%b %d, %Y at %H:%M') }}</div>
+                    </div>
+                </div>
+
+                {% if post.content %}
+                <p style="margin-bottom: 15px;">{{ post.content }}</p>
+                {% endif %}
+
+                {% if post.media_url %}
+                    {% if post.media_type == 'video' %}
+                    <video src="{{ post.media_url }}" controls style="max-width: 100%; border-radius: var(--radius);"></video>
+                    {% else %}
+                    <img src="{{ post.media_url }}" style="max-width: 100%; border-radius: var(--radius);">
+                    {% endif %}
+                {% endif %}
+            </div>
+            {% else %}
+            <div class="empty-state" style="text-align: center; padding: 40px; background: var(--card); border-radius: var(--radius-lg);">
+                <div style="font-size: 48px; margin-bottom: 15px;">📭</div>
+                <h3>No posts yet</h3>
+                <p style="color: var(--text-muted);">Be the first to post in this group!</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

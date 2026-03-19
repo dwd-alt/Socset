@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}{{ channel.name }} — Kildear{% endblock %}
+
+{% block content %}
+<div class="channel-page" style="max-width: 800px; margin: 0 auto; padding: 20px;">
+    <!-- Channel Header -->
+    <div class="channel-header" style="background: var(--card); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 20px;">
+        {% if channel.cover %}
+        <div class="channel-cover" style="height: 200px; background-image: url('{{ channel.cover }}'); background-size: cover; background-position: center;"></div>
+        {% else %}
+        <div class="channel-cover" style="height: 200px; background: linear-gradient(135deg, var(--primary), var(--secondary));"></div>
+        {% endif %}
+
+        <div class="channel-info" style="padding: 20px; position: relative;">
+            <div class="channel-avatar" style="position: absolute; top: -50px; left: 20px;">
+                {% if channel.avatar %}
+                <img src="{{ channel.avatar }}" class="avatar avatar-xl" style="border: 4px solid var(--surface);">
+                {% else %}
+                <div class="avatar avatar-xl" style="background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 2rem; border: 4px solid var(--surface);">
+                    {{ channel.name[0].upper() }}
+                </div>
+                {% endif %}
+            </div>
+
+            <div style="margin-left: 120px;">
+                <h1 style="font-size: 24px; margin-bottom: 5px;">{{ channel.name }}</h1>
+                <div style="display: flex; gap: 15px; color: var(--text-muted); font-size: 14px; margin-bottom: 10px;">
+                    <span><i class="fa-regular fa-user"></i> <span id="sub-count">{{ channel.sub_count }}</span> subscribers</span>
+                    <span><i class="fa-regular fa-calendar"></i> Created {{ channel.created_at.strftime('%b %d, %Y') }}</span>
+                    {% if channel.is_nsfw %}
+                    <span class="badge" style="background: rgba(255, 107, 107, 0.2); color: #ff6b6b;">🔞 NSFW</span>
+                    {% endif %}
+                </div>
+
+                {% if channel.description %}
+                <p style="color: var(--text); line-height: 1.6;">{{ channel.description }}</p>
+                {% endif %}
+
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    {% if is_subscribed %}
+                        <button class="btn btn-outline" onclick="toggleSubscribe('{{ channel.slug }}', this)">
+                            <i class="fa-regular fa-bell-slash"></i> Unsubscribe
+                        </button>
+                    {% else %}
+                        <button class="btn btn-primary" onclick="toggleSubscribe('{{ channel.slug }}', this)">
+                            <i class="fa-regular fa-bell"></i> Subscribe
+                        </button>
+                    {% endif %}
+
+                    {% if is_own %}
+                    <a href="#" class="btn btn-outline">
+                        <i class="fa-regular fa-pen-to-square"></i> Edit Channel
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Channel Posts -->
+    <div class="channel-posts">
+        {% if is_own %}
+        <div class="create-post" style="background: var(--card); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px;">
+            <form action="{{ url_for('channel_publish', slug=channel.slug) }}" method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <textarea name="content" placeholder="Share something with your subscribers..."
+                          style="width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--input-bg); color: var(--text); resize: vertical;"
+                          rows="3"></textarea>
+
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <input type="file" name="media" accept="image/*,video/*" style="display: none;" id="media-input">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('media-input').click()">
+                        <i class="fa-regular fa-image"></i> Add Media
+                    </button>
+                    <button type="submit" class="btn btn-primary btn-sm" style="margin-left: auto;">
+                        <i class="fa-regular fa-paper-plane"></i> Publish
+                    </button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
+
+        <div class="posts-feed">
+            {% for post in posts %}
+            <div class="post-card" style="background: var(--card); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 15px;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                    <img src="{{ channel.avatar or '/static/default_channel.png' }}" class="avatar avatar-sm" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
+                    <div>
+                        <div style="font-weight: 600;">{{ channel.name }}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">{{ post.created_at|timeago }}</div>
+                    </div>
+                </div>
+
+                {% if post.content %}
+                <p style="margin-bottom: 15px;">{{ post.content }}</p>
+                {% endif %}
+
+                {% if post.media_url %}
+                    {% if post.media_type == 'video' %}
+                    <video src="{{ post.media_url }}" controls style="max-width: 100%; border-radius: var(--radius);"></video>
+                    {% else %}
+                    <img src="{{ post.media_url }}" style="max-width: 100%; border-radius: var(--radius);">
+                    {% endif %}
+                {% endif %}
+
+                <div style="display: flex; gap: 15px; margin-top: 15px; color: var(--text-muted); font-size: 14px;">
+                    <span><i class="fa-regular fa-eye"></i> {{ post.views }} views</span>
+                </div>
+            </div>
+            {% else %}
+            <div class="empty-state" style="text-align: center; padding: 40px; background: var(--card); border-radius: var(--radius-lg);">
+                <div style="font-size: 48px; margin-bottom: 15px;">📢</div>
+                <h3>No posts yet</h3>
+                {% if is_own %}
+                <p style="color: var(--text-muted);">Create your first channel post!</p>
+                {% else %}
+                <p style="color: var(--text-muted);">This channel hasn't posted anything yet.</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<script>
+async function toggleSubscribe(slug, btn) {
+    try {
+        const response = await fetch(`/channels/${slug}/subscribe`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token() }}'
+            }
+        });
+        const data = await response.json();
+
+        if (data.subscribed) {
+            btn.innerHTML = '<i class="fa-regular fa-bell-slash"></i> Unsubscribe';
+            btn.className = 'btn btn-outline';
+        } else {
+            btn.innerHTML = '<i class="fa-regular fa-bell"></i> Subscribe';
+            btn.className = 'btn btn-primary';
+        }
+
+        const subCount = document.getElementById('sub-count');
+        if (subCount) subCount.textContent = data.count;
+
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+</script>
+{% endblock %}

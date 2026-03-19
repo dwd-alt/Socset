@@ -1,0 +1,1711 @@
+{% extends "base.html" %}
+
+{% block title %}Chat with @{{ partner.username }} — Kildear{% endblock %}
+
+{% block head %}
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  .chat-layout {
+    display: flex;
+    height: calc(100vh - 60px);
+    overflow: hidden;
+    background: var(--bg);
+    position: fixed;
+    top: 60px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+  }
+
+  /* Resizable Chat Sidebar */
+  .chat-sidebar {
+    width: 320px;
+    min-width: 280px;
+    max-width: 500px;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    overflow: hidden;
+    position: relative;
+    transition: width 0.1s ease;
+  }
+
+  .resize-handle {
+    position: absolute;
+    right: -3px;
+    top: 0;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.2s;
+    z-index: 10;
+  }
+
+  .resize-handle:hover,
+  .resize-handle:active {
+    background: var(--primary);
+    opacity: 0.5;
+  }
+
+  .chat-sidebar-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .chat-sidebar-header h3 {
+    font-size: 1.2rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text);
+  }
+
+  .chat-sidebar-header h3 i {
+    color: var(--primary);
+  }
+
+  .chat-search {
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .chat-search input {
+    width: 100%;
+    padding: 10px 15px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 25px;
+    color: var(--text);
+    font-size: 0.9rem;
+    outline: none;
+    transition: all 0.2s;
+  }
+
+  .chat-search input:focus {
+    border-color: var(--primary);
+    background: rgba(124,111,255,0.1);
+  }
+
+  .conversation-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 0;
+  }
+
+  .conversation-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    text-decoration: none;
+    color: var(--text);
+    transition: all 0.2s;
+    border-left: 3px solid transparent;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .conversation-item:hover {
+    background: rgba(255,255,255,0.05);
+  }
+
+  .conversation-item.active {
+    background: rgba(124,111,255,0.1);
+    border-left-color: var(--primary);
+  }
+
+  .conversation-item.unread {
+    background: rgba(124,111,255,0.05);
+  }
+
+  .conversation-avatar {
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .conversation-avatar img {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border);
+  }
+
+  .online-indicator {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 12px;
+    height: 12px;
+    background: #4ade80;
+    border-radius: 50%;
+    border: 2px solid var(--surface);
+  }
+
+  .conversation-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .conversation-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .conversation-preview {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .conversation-time {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-left: 8px;
+  }
+
+  .unread-badge {
+    background: var(--primary);
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 12px;
+    min-width: 20px;
+    text-align: center;
+    margin-left: 8px;
+  }
+
+  /* Chat Main Area */
+  .chat-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    overflow: hidden;
+  }
+
+  .chat-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px 25px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+
+  .back-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 1.2rem;
+    cursor: pointer;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+
+  .back-btn:hover {
+    background: rgba(255,255,255,0.1);
+  }
+
+  @media (max-width: 768px) {
+    .back-btn {
+      display: flex;
+    }
+    .chat-sidebar {
+      display: none;
+    }
+  }
+
+  .chat-partner-avatar {
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+
+  .chat-partner-avatar img {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border);
+    transition: transform 0.2s;
+  }
+
+  .chat-partner-avatar img:hover {
+    transform: scale(1.05);
+  }
+
+  .chat-partner-info {
+    flex: 1;
+    cursor: pointer;
+  }
+
+  .chat-partner-name {
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+  }
+
+  .verified-icon {
+    color: var(--primary);
+    font-size: 0.9rem;
+  }
+
+  .chat-partner-status {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .status-online {
+    color: #4ade80;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    background: #4ade80;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 5px;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+    100% {
+      opacity: 1;
+    }
+  }
+
+  .chat-actions {
+    display: flex;
+    gap: 8px;
+    position: relative;
+  }
+
+  .chat-action-btn {
+    width: 40px;
+    height: 40px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    font-size: 1.1rem;
+  }
+
+  .chat-action-btn:hover {
+    background: rgba(255,255,255,0.1);
+    color: var(--text);
+  }
+
+  .chat-action-btn.active {
+    color: var(--primary);
+    background: rgba(124,111,255,0.1);
+  }
+
+  /* Dropdown Menu */
+  .dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 0;
+    min-width: 200px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    z-index: 100;
+    display: none;
+  }
+
+  .dropdown-menu.show {
+    display: block;
+    animation: slideDown 0.2s ease;
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    color: var(--text);
+    text-decoration: none;
+    transition: all 0.2s;
+    cursor: pointer;
+    border: none;
+    background: none;
+    width: 100%;
+    font-size: 0.95rem;
+  }
+
+  .dropdown-item:hover {
+    background: rgba(255,255,255,0.05);
+  }
+
+  .dropdown-item.danger {
+    color: var(--danger);
+  }
+
+  .dropdown-item.danger:hover {
+    background: rgba(255,107,107,0.1);
+  }
+
+  .dropdown-item i {
+    width: 20px;
+    font-size: 1rem;
+  }
+
+  /* Messages Area */
+  .messages-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 25px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    background: var(--bg);
+  }
+
+  .message-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    animation: fadeIn 0.3s ease;
+    position: relative;
+  }
+
+  .message-row:hover .message-actions {
+    opacity: 1;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .message-row.own {
+    flex-direction: row-reverse;
+  }
+
+  .message-avatar {
+    flex-shrink: 0;
+  }
+
+  .message-avatar img {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border);
+  }
+
+  .message-row.own .message-avatar {
+    display: none;
+  }
+
+  .message-content {
+    max-width: 60%;
+    position: relative;
+  }
+
+  .message-bubble {
+    padding: 12px 18px;
+    border-radius: 20px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    word-wrap: break-word;
+    position: relative;
+  }
+
+  .message-row:not(.own) .message-bubble {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+    color: var(--text);
+  }
+
+  .message-row.own .message-bubble {
+    background: var(--primary);
+    color: white;
+    border-bottom-right-radius: 4px;
+    box-shadow: 0 4px 15px rgba(124,111,255,0.3);
+  }
+
+  .message-time {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 5px;
+    text-align: right;
+    padding: 0 5px;
+  }
+
+  .message-row.own .message-time {
+    color: rgba(255,255,255,0.7);
+  }
+
+  .message-bubble img {
+    max-width: 250px;
+    max-height: 200px;
+    border-radius: 12px;
+    margin-top: 8px;
+    cursor: pointer;
+    transition: transform 0.2s;
+  }
+
+  .message-bubble img:hover {
+    transform: scale(1.02);
+  }
+
+  /* Message Actions */
+  .message-actions {
+    position: absolute;
+    top: -30px;
+    right: 0;
+    display: flex;
+    gap: 5px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    z-index: 5;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  }
+
+  .message-row.own .message-actions {
+    right: auto;
+    left: 0;
+  }
+
+  .message-action-btn {
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    font-size: 0.85rem;
+  }
+
+  .message-action-btn:hover {
+    background: rgba(255,255,255,0.1);
+    color: var(--text);
+  }
+
+  .message-action-btn.delete:hover {
+    color: var(--danger);
+    background: rgba(255,107,107,0.1);
+  }
+
+  /* Call Modal */
+  .call-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(10px);
+  }
+
+  .call-modal-overlay.hidden {
+    display: none;
+  }
+
+  .call-modal {
+    background: var(--surface);
+    border-radius: 20px;
+    width: 400px;
+    max-width: 90vw;
+    padding: 30px;
+    text-align: center;
+    border: 1px solid var(--border);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+  }
+
+  .call-avatar {
+    margin-bottom: 20px;
+  }
+
+  .call-avatar img {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid var(--primary);
+  }
+
+  .call-status {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+
+  .call-duration {
+    font-size: 1.5rem;
+    font-family: monospace;
+    margin-bottom: 30px;
+    color: var(--primary);
+  }
+
+  .call-actions {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+  }
+
+  .call-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    transition: all 0.2s;
+  }
+
+  .call-btn.end-call {
+    background: var(--danger);
+    color: white;
+  }
+
+  .call-btn.end-call:hover {
+    transform: scale(1.1);
+    background: #ff4d4d;
+  }
+
+  .call-btn.mute {
+    background: rgba(255,255,255,0.1);
+    color: var(--text);
+  }
+
+  .call-btn.mute:hover {
+    background: rgba(255,255,255,0.2);
+  }
+
+  .call-btn.mute.active {
+    background: var(--primary);
+    color: white;
+  }
+
+  /* Date Separator */
+  .date-separator {
+    text-align: center;
+    margin: 20px 0;
+    position: relative;
+  }
+
+  .date-separator span {
+    background: var(--surface);
+    padding: 5px 15px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+
+  /* Typing Indicator */
+  .typing-indicator {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  .typing-indicator.show {
+    display: flex;
+  }
+
+  .typing-dots {
+    display: flex;
+    gap: 4px;
+  }
+
+  .typing-dots span {
+    width: 8px;
+    height: 8px;
+    background: var(--primary);
+    border-radius: 50%;
+    animation: typing 1.4s infinite;
+    opacity: 0.6;
+  }
+
+  .typing-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+
+  .typing-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+
+  @keyframes typing {
+    0%, 60%, 100% {
+      transform: translateY(0);
+    }
+    30% {
+      transform: translateY(-8px);
+    }
+  }
+
+  /* Chat Input Area */
+  .chat-input-area {
+    padding: 20px 25px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+
+  .chat-input-wrapper {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    background: rgba(255,255,255,0.05);
+    border: 2px solid var(--border);
+    border-radius: 30px;
+    padding: 8px 8px 8px 20px;
+    transition: all 0.2s;
+  }
+
+  .chat-input-wrapper:focus-within {
+    border-color: var(--primary);
+    background: rgba(124,111,255,0.05);
+  }
+
+  #messageInput {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-size: 0.95rem;
+    padding: 10px 0;
+    resize: none;
+    max-height: 120px;
+    min-height: 24px;
+    font-family: inherit;
+  }
+
+  #messageInput::placeholder {
+    color: var(--text-muted);
+  }
+
+  #messageInput:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .chat-actions {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+  }
+
+  .chat-action-btn {
+    width: 42px;
+    height: 42px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    font-size: 1.2rem;
+  }
+
+  .chat-action-btn:hover:not(:disabled) {
+    background: rgba(255,255,255,0.1);
+    color: var(--text);
+  }
+
+  .chat-action-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  .send-btn {
+    width: 42px;
+    height: 42px;
+    background: var(--primary);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    font-size: 1.1rem;
+  }
+
+  .send-btn:hover:not(:disabled) {
+    transform: scale(1.1);
+    background: var(--primary-dark);
+    box-shadow: 0 4px 15px rgba(124,111,255,0.4);
+  }
+
+  .send-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  /* Media Preview */
+  .media-preview {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 15px 25px 5px;
+  }
+
+  .media-preview.show {
+    display: flex;
+  }
+
+  .preview-container {
+    position: relative;
+    display: inline-block;
+  }
+
+  .preview-container img {
+    height: 70px;
+    width: auto;
+    border-radius: 10px;
+    border: 2px solid var(--primary);
+  }
+
+  .remove-media {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 24px;
+    height: 24px;
+    background: var(--danger);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+  }
+
+  .remove-media:hover {
+    transform: scale(1.1);
+    background: #ff4d4d;
+  }
+
+  /* Blocked User Overlay */
+  .blocked-overlay {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  .blocked-overlay.show {
+    display: flex;
+  }
+
+  .blocked-overlay i {
+    font-size: 3rem;
+    margin-bottom: 15px;
+    opacity: 0.5;
+  }
+
+  .blocked-overlay h3 {
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+
+  .unblock-btn {
+    margin-top: 20px;
+    padding: 10px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 25px;
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .unblock-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  /* Scrollbar */
+  .messages-area::-webkit-scrollbar,
+  .conversation-list::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .messages-area::-webkit-scrollbar-track,
+  .conversation-list::-webkit-scrollbar-track {
+    background: rgba(255,255,255,0.05);
+  }
+
+  .messages-area::-webkit-scrollbar-thumb,
+  .conversation-list::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.2);
+    border-radius: 3px;
+  }
+
+  .messages-area::-webkit-scrollbar-thumb:hover,
+  .conversation-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.3);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="chat-layout">
+  <!-- Resizable Chat Sidebar -->
+  <div class="chat-sidebar" id="chatSidebar">
+    <div class="resize-handle" id="resizeHandle"></div>
+
+    <div class="chat-sidebar-header">
+      <h3>
+        <i class="fa-regular fa-comments"></i>
+        Messages
+      </h3>
+    </div>
+
+    <div class="chat-search">
+      <input type="text" placeholder="Search conversations..." id="searchConversations" oninput="filterConversations(this.value)">
+    </div>
+
+    <div class="conversation-list" id="conversationList">
+      <!-- Conversations will be loaded here -->
+      {% for convo in conversations %}
+      <a href="{{ url_for('chat', username=convo.user.username) }}"
+         class="conversation-item {% if convo.unread > 0 %}unread{% endif %} {% if convo.user.id == partner.id %}active{% endif %}"
+         data-user-id="{{ convo.user.id }}">
+        <div class="conversation-avatar">
+          <img src="{{ convo.user.avatar or '/static/default_avatar.png' }}" alt="{{ convo.user.username }}">
+          {% if convo.user.is_online %}
+          <span class="online-indicator"></span>
+          {% endif %}
+        </div>
+        <div class="conversation-info">
+          <div class="conversation-name">
+            {{ convo.user.display_name or convo.user.username }}
+            {% if convo.user.is_verified %}
+            <i class="fa-solid fa-circle-check verified-icon" style="color: var(--primary); font-size: 0.8rem;"></i>
+            {% endif %}
+          </div>
+          <div class="conversation-preview">
+            {% if convo.last %}
+              {% if convo.last.sender_id == current_user.id %}You: {% endif %}
+              {% if convo.last.content %}
+                {{ convo.last.content[:40] }}{% if convo.last.content|length > 40 %}...{% endif %}
+              {% elif convo.last.media_url %}
+                📷 Photo
+              {% endif %}
+            {% else %}
+              No messages yet
+            {% endif %}
+          </div>
+          {% if convo.last %}
+          <div class="conversation-time">{{ convo.last.created_at|timeago }}</div>
+          {% endif %}
+        </div>
+        {% if convo.unread > 0 %}
+        <span class="unread-badge">{{ convo.unread }}</span>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Main Chat Area -->
+  <div class="chat-main">
+    <!-- Chat Header -->
+    <div class="chat-header">
+      <button class="back-btn" onclick="window.history.back()">
+        <i class="fa-solid fa-arrow-left"></i>
+      </button>
+      <div class="chat-partner-avatar" onclick="window.location.href='{{ url_for('profile', username=partner.username) }}'">
+        <img src="{{ partner.avatar or '/static/default_avatar.png' }}" alt="{{ partner.username }}">
+      </div>
+      <div class="chat-partner-info" onclick="window.location.href='{{ url_for('profile', username=partner.username) }}'">
+        <div class="chat-partner-name">
+          {{ partner.display_name or partner.username }}
+          {% if partner.is_verified %}
+          <i class="fa-solid fa-circle-check verified-icon"></i>
+          {% endif %}
+        </div>
+        <div class="chat-partner-status" id="partnerStatus">
+          <span class="status-dot"></span>
+          {% if partner.is_online %}
+          Online
+          {% else %}
+          Last seen {{ partner.last_seen|timeago if partner.last_seen else 'recently' }}
+          {% endif %}
+        </div>
+      </div>
+      <div class="chat-actions">
+        <button class="chat-action-btn {% if in_call %}active{% endif %}" onclick="startCall('video')" title="Video call">
+          <i class="fa-solid fa-video"></i>
+        </button>
+        <button class="chat-action-btn {% if in_call %}active{% endif %}" onclick="startCall('audio')" title="Voice call">
+          <i class="fa-solid fa-phone"></i>
+        </button>
+        <button class="chat-action-btn" onclick="toggleDropdown()" title="More options">
+          <i class="fa-solid fa-ellipsis-vertical"></i>
+        </button>
+
+        <!-- Dropdown Menu -->
+        <div class="dropdown-menu" id="dropdownMenu">
+          <button class="dropdown-item" onclick="editContact()">
+            <i class="fa-regular fa-pen-to-square"></i>
+            Edit contact
+          </button>
+          {% if is_blocked %}
+          <button class="dropdown-item" onclick="unblockUser()">
+            <i class="fa-solid fa-ban"></i>
+            Unblock user
+          </button>
+          {% else %}
+          <button class="dropdown-item danger" onclick="blockUser()">
+            <i class="fa-solid fa-ban"></i>
+            Block user
+          </button>
+          {% endif %}
+          <button class="dropdown-item" onclick="clearHistory()">
+            <i class="fa-regular fa-trash-can"></i>
+            Clear history
+          </button>
+          <hr style="border: 1px solid var(--border); margin: 8px 0;">
+          <button class="dropdown-item" onclick="reportUser()">
+            <i class="fa-regular fa-flag"></i>
+            Report user
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Blocked Overlay (shown when user is blocked) -->
+    <div class="blocked-overlay {% if is_blocked %}show{% endif %}" id="blockedOverlay">
+      <i class="fa-solid fa-ban"></i>
+      <h3>You have blocked this user</h3>
+      <p>You won't receive any messages from {{ partner.display_name or partner.username }}</p>
+      <button class="unblock-btn" onclick="unblockUser()">
+        <i class="fa-solid fa-ban"></i> Unblock user
+      </button>
+    </div>
+
+    <!-- Messages Area (hidden if blocked) -->
+    <div class="messages-area" id="messagesArea" {% if is_blocked %}style="display: none;"{% endif %}>
+      {% for msg in messages %}
+      <div class="message-row {% if msg.sender_id == current_user.id %}own{% endif %}"
+           id="msg-{{ msg.id }}"
+           onmouseenter="showMessageActions({{ msg.id }})"
+           onmouseleave="hideMessageActions({{ msg.id }})">
+
+        <!-- Message Actions -->
+        <div class="message-actions" id="actions-{{ msg.id }}">
+          <button class="message-action-btn" onclick="replyToMessage({{ msg.id }}, '{{ msg.content|escape }}')" title="Reply">
+            <i class="fa-regular fa-reply"></i>
+          </button>
+          <button class="message-action-btn" onclick="forwardMessage({{ msg.id }})" title="Forward">
+            <i class="fa-regular fa-share-from-square"></i>
+          </button>
+          {% if msg.sender_id == current_user.id %}
+          <button class="message-action-btn delete" onclick="deleteMessage({{ msg.id }})" title="Delete">
+            <i class="fa-regular fa-trash-can"></i>
+          </button>
+          {% endif %}
+        </div>
+
+        {% if msg.sender_id != current_user.id %}
+        <div class="message-avatar">
+          <img src="{{ partner.avatar or '/static/default_avatar.png' }}" alt="{{ partner.username }}">
+        </div>
+        {% endif %}
+
+        <div class="message-content">
+          <div class="message-bubble">
+            {% if msg.content %}
+            {{ msg.content }}
+            {% endif %}
+            {% if msg.media_url %}
+            <img src="{{ msg.media_url }}" alt="Media" onclick="window.open('{{ msg.media_url }}', '_blank')">
+            {% endif %}
+          </div>
+          <div class="message-time">{{ msg.created_at|timeago }}</div>
+        </div>
+      </div>
+      {% endfor %}
+
+      <!-- Typing Indicator -->
+      <div class="typing-indicator" id="typingIndicator">
+        <div class="typing-dots">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <span>{{ partner.display_name or partner.username }} is typing...</span>
+      </div>
+    </div>
+
+    <!-- Media Preview -->
+    <div class="media-preview" id="mediaPreview">
+      <div class="preview-container">
+        <img id="previewImage" src="" alt="Preview">
+        <button class="remove-media" onclick="clearMedia()">
+          <i class="fa-solid fa-times"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Chat Input (hidden if blocked) -->
+    <div class="chat-input-area" id="chatInputArea" {% if is_blocked %}style="display: none;"{% endif %}>
+      <div class="chat-input-wrapper">
+        <textarea id="messageInput"
+                  placeholder="Message @{{ partner.username }}..."
+                  rows="1"
+                  oninput="autoResize(this); checkInput(); sendTypingIndicator()"
+                  {% if is_blocked %}disabled{% endif %}></textarea>
+        <div class="chat-actions">
+          <label class="chat-action-btn" for="mediaUpload" style="cursor: pointer; {% if is_blocked %}opacity: 0.3; pointer-events: none;{% endif %}">
+            <i class="fa-regular fa-image"></i>
+          </label>
+          <input type="file" id="mediaUpload" accept="image/*" style="display: none;" onchange="handleMediaSelect(this)" {% if is_blocked %}disabled{% endif %}>
+          <button class="send-btn" id="sendBtn" onclick="sendMessage()" disabled>
+            <i class="fa-regular fa-paper-plane"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Call Modal -->
+<div class="call-modal-overlay hidden" id="callModal">
+  <div class="call-modal">
+    <div class="call-avatar">
+      <img src="{{ partner.avatar or '/static/default_avatar.png' }}" alt="{{ partner.username }}">
+    </div>
+    <div class="call-status" id="callStatus">Calling {{ partner.display_name or partner.username }}...</div>
+    <div class="call-duration" id="callDuration">00:00</div>
+    <div class="call-actions">
+      <button class="call-btn mute" id="muteBtn" onclick="toggleMute()">
+        <i class="fa-solid fa-microphone"></i>
+      </button>
+      <button class="call-btn end-call" onclick="endCall()">
+        <i class="fa-solid fa-phone"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden inputs for data -->
+<input type="hidden" id="csrfToken" value="{{ csrf_token() }}">
+<input type="hidden" id="partnerUsername" value="{{ partner.username }}">
+<input type="hidden" id="currentUserId" value="{{ current_user.id }}">
+<input type="hidden" id="partnerId" value="{{ partner.id }}">
+<input type="hidden" id="isBlocked" value="{{ 'true' if is_blocked else 'false' }}">
+
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+<script>
+// Initialize socket.io
+const socket = io();
+const currentUserId = parseInt(document.getElementById('currentUserId').value);
+const partnerId = parseInt(document.getElementById('partnerId').value);
+const room = [currentUserId, partnerId].sort().join('_');
+
+let typingTimeout;
+let callInterval;
+let callSeconds = 0;
+let isMuted = false;
+let inCall = false;
+
+// Join chat room
+socket.emit('join_chat', { room: room });
+
+// Receive messages
+socket.on('new_message', function(data) {
+    if (data.sender_id === partnerId || data.sender_id === currentUserId) {
+        appendMessage(data);
+        // Add to conversation list if not exists
+        updateConversationList(data);
+    }
+});
+
+// Typing indicator
+socket.on('typing', function(data) {
+    const indicator = document.getElementById('typingIndicator');
+    if (indicator && data.user !== '{{ current_user.username }}') {
+        indicator.classList.add('show');
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+            indicator.classList.remove('show');
+        }, 2000);
+    }
+});
+
+// Call events
+socket.on('incoming_call', function(data) {
+    if (data.from === partnerId) {
+        showIncomingCall(data.type);
+    }
+});
+
+socket.on('call_accepted', function() {
+    startCallTimer();
+    document.getElementById('callStatus').textContent = 'Connected';
+});
+
+socket.on('call_ended', function() {
+    endCall();
+});
+
+// Send message function
+async function sendMessage() {
+    const input = document.getElementById('messageInput');
+    const content = input.value.trim();
+    const mediaFile = document.getElementById('mediaUpload').files[0];
+    const sendBtn = document.getElementById('sendBtn');
+
+    if (!content && !mediaFile) return;
+    if (document.getElementById('isBlocked').value === 'true') return;
+
+    sendBtn.disabled = true;
+
+    const formData = new FormData();
+    if (content) formData.append('content', content);
+    if (mediaFile) formData.append('media', mediaFile);
+
+    try {
+        const response = await fetch('/chat/{{ partner.username }}/send', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.getElementById('csrfToken').value
+            },
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (data.ok || data.id) {
+            // Clear input
+            input.value = '';
+            input.style.height = 'auto';
+            clearMedia();
+            checkInput();
+
+            // Scroll to bottom
+            const messagesArea = document.getElementById('messagesArea');
+            messagesArea.scrollTop = messagesArea.scrollHeight;
+        } else {
+            alert('Failed to send message: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error sending message:', error);
+        alert('Error sending message. Please try again.');
+    } finally {
+        sendBtn.disabled = false;
+        input.focus();
+    }
+}
+
+// Append message to chat
+function appendMessage(data) {
+    const messagesArea = document.getElementById('messagesArea');
+    const isOwn = data.sender_id === currentUserId;
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message-row ${isOwn ? 'own' : ''}`;
+    messageDiv.id = `msg-${data.id || Date.now()}`;
+    messageDiv.setAttribute('onmouseenter', `showMessageActions(${data.id})`);
+    messageDiv.setAttribute('onmouseleave', `hideMessageActions(${data.id})`);
+
+    let avatarHtml = '';
+    if (!isOwn) {
+        avatarHtml = `
+            <div class="message-avatar">
+                <img src="{{ partner.avatar or '/static/default_avatar.png' }}" alt="{{ partner.username }}">
+            </div>
+        `;
+    }
+
+    let contentHtml = '';
+    if (data.content) {
+        contentHtml = escapeHtml(data.content);
+    }
+
+    let mediaHtml = '';
+    if (data.media_url) {
+        mediaHtml = `<img src="${data.media_url}" alt="Media" onclick="window.open('${data.media_url}', '_blank')">`;
+    }
+
+    messageDiv.innerHTML = `
+        <div class="message-actions" id="actions-${data.id}">
+            <button class="message-action-btn" onclick="replyToMessage(${data.id}, '${data.content || ''}')" title="Reply">
+                <i class="fa-regular fa-reply"></i>
+            </button>
+            <button class="message-action-btn" onclick="forwardMessage(${data.id})" title="Forward">
+                <i class="fa-regular fa-share-from-square"></i>
+            </button>
+            ${isOwn ? '<button class="message-action-btn delete" onclick="deleteMessage(' + data.id + ')" title="Delete"><i class="fa-regular fa-trash-can"></i></button>' : ''}
+        </div>
+        ${avatarHtml}
+        <div class="message-content">
+            <div class="message-bubble">
+                ${contentHtml}
+                ${mediaHtml}
+            </div>
+            <div class="message-time">${data.created_at || 'just now'}</div>
+        </div>
+    `;
+
+    // Remove typing indicator if it's the last element
+    const typingIndicator = document.getElementById('typingIndicator');
+    if (typingIndicator) {
+        messagesArea.insertBefore(messageDiv, typingIndicator);
+    } else {
+        messagesArea.appendChild(messageDiv);
+    }
+
+    // Scroll to bottom
+    messagesArea.scrollTop = messagesArea.scrollHeight;
+}
+
+// Update conversation list
+function updateConversationList(data) {
+    // This would update the sidebar with new conversations
+    // For now, we'll just reload the page to show new convos
+    // In a real app, you'd want to dynamically add to the list
+    location.reload();
+}
+
+// Message Actions
+function showMessageActions(messageId) {
+    const actions = document.getElementById(`actions-${messageId}`);
+    if (actions) {
+        actions.style.opacity = '1';
+    }
+}
+
+function hideMessageActions(messageId) {
+    const actions = document.getElementById(`actions-${messageId}`);
+    if (actions) {
+        actions.style.opacity = '0';
+    }
+}
+
+function replyToMessage(messageId, content) {
+    alert('Reply feature coming soon!');
+}
+
+async function forwardMessage(messageId) {
+    alert('Forward feature coming soon!');
+}
+
+async function deleteMessage(messageId) {
+    if (!confirm('Are you sure you want to delete this message?')) return;
+
+    try {
+        const response = await fetch(`/chat/message/${messageId}/delete`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.getElementById('csrfToken').value
+            }
+        });
+
+        if (response.ok) {
+            const messageElement = document.getElementById(`msg-${messageId}`);
+            if (messageElement) {
+                messageElement.remove();
+            }
+        } else {
+            alert('Failed to delete message');
+        }
+    } catch (error) {
+        console.error('Error deleting message:', error);
+        alert('Error deleting message');
+    }
+}
+
+// Call functions
+function startCall(type) {
+    if (inCall) {
+        alert('Already in a call');
+        return;
+    }
+
+    inCall = true;
+    document.getElementById('callModal').classList.remove('hidden');
+    document.getElementById('callStatus').textContent = `Calling ${partner.display_name || partner.username}...`;
+
+    // Emit call event
+    socket.emit('start_call', {
+        to: partnerId,
+        type: type,
+        room: room
+    });
+
+    // Simulate call acceptance after 3 seconds (in real app, this would come from the other user)
+    setTimeout(() => {
+        if (inCall) {
+            document.getElementById('callStatus').textContent = 'Connected';
+            startCallTimer();
+        }
+    }, 3000);
+}
+
+function startCallTimer() {
+    callSeconds = 0;
+    callInterval = setInterval(() => {
+        callSeconds++;
+        const minutes = Math.floor(callSeconds / 60);
+        const seconds = callSeconds % 60;
+        document.getElementById('callDuration').textContent =
+            `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }, 1000);
+}
+
+function endCall() {
+    inCall = false;
+    clearInterval(callInterval);
+    document.getElementById('callModal').classList.add('hidden');
+
+    // Emit end call event
+    socket.emit('end_call', { room: room });
+}
+
+function toggleMute() {
+    isMuted = !isMuted;
+    const muteBtn = document.getElementById('muteBtn');
+    if (isMuted) {
+        muteBtn.classList.add('active');
+        muteBtn.innerHTML = '<i class="fa-solid fa-microphone-slash"></i>';
+    } else {
+        muteBtn.classList.remove('active');
+        muteBtn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+    }
+}
+
+// Dropdown menu
+function toggleDropdown() {
+    const dropdown = document.getElementById('dropdownMenu');
+    dropdown.classList.toggle('show');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('dropdownMenu');
+    const button = e.target.closest('.chat-action-btn');
+    if (!button && dropdown.classList.contains('show')) {
+        dropdown.classList.remove('show');
+    }
+});
+
+// User actions
+function editContact() {
+    const newName = prompt('Enter a new name for this contact:', '{{ partner.display_name or partner.username }}');
+    if (newName) {
+        alert('Contact name updated! (This would save to database)');
+    }
+}
+
+async function blockUser() {
+    if (confirm(`Are you sure you want to block @{{ partner.username }}?`)) {
+        try {
+            const response = await fetch(`/user/{{ partner.id }}/block`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': document.getElementById('csrfToken').value
+                }
+            });
+
+            if (response.ok) {
+                document.getElementById('isBlocked').value = 'true';
+                document.getElementById('blockedOverlay').classList.add('show');
+                document.getElementById('messagesArea').style.display = 'none';
+                document.getElementById('chatInputArea').style.display = 'none';
+                toggleDropdown();
+            }
+        } catch (error) {
+            console.error('Error blocking user:', error);
+            alert('Error blocking user');
+        }
+    }
+}
+
+async function unblockUser() {
+    try {
+        const response = await fetch(`/user/{{ partner.id }}/unblock`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.getElementById('csrfToken').value
+            }
+        });
+
+        if (response.ok) {
+            document.getElementById('isBlocked').value = 'false';
+            document.getElementById('blockedOverlay').classList.remove('show');
+            document.getElementById('messagesArea').style.display = 'block';
+            document.getElementById('chatInputArea').style.display = 'block';
+            toggleDropdown();
+        }
+    } catch (error) {
+        console.error('Error unblocking user:', error);
+        alert('Error unblocking user');
+    }
+}
+
+function clearHistory() {
+    if (confirm('Are you sure you want to clear all messages with @{{ partner.username }}? This cannot be undone.')) {
+        alert('Chat history cleared! (This would delete all messages)');
+    }
+}
+
+function reportUser() {
+    const reason = prompt('Please describe the reason for reporting:', '');
+    if (reason) {
+        alert('User reported. Thank you for helping keep Kildear safe!');
+    }
+}
+
+// Check input and enable/disable send button
+function checkInput() {
+    const input = document.getElementById('messageInput');
+    const mediaFile = document.getElementById('mediaUpload').files[0];
+    const sendBtn = document.getElementById('sendBtn');
+    const isBlocked = document.getElementById('isBlocked').value === 'true';
+
+    sendBtn.disabled = (!input.value.trim() && !mediaFile) || isBlocked;
+}
+
+// Auto resize textarea
+function autoResize(textarea) {
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+}
+
+// Send typing indicator
+function sendTypingIndicator() {
+    const input = document.getElementById('messageInput');
+    const isBlocked = document.getElementById('isBlocked').value === 'true';
+
+    if (input.value.trim() && !isBlocked) {
+        socket.emit('typing', { room: room, user: '{{ current_user.username }}' });
+    }
+}
+
+// Handle media selection
+function handleMediaSelect(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    // Check file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+        alert('File too large. Maximum size is 5MB.');
+        input.value = '';
+        return;
+    }
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+        alert('Please select an image file.');
+        input.value = '';
+        return;
+    }
+
+    const preview = document.getElementById('mediaPreview');
+    const previewImg = document.getElementById('previewImage');
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        previewImg.src = e.target.result;
+        preview.classList.add('show');
+    };
+    reader.readAsDataURL(file);
+
+    checkInput();
+}
+
+// Clear media
+function clearMedia() {
+    document.getElementById('mediaUpload').value = '';
+    document.getElementById('mediaPreview').classList.remove('show');
+    document.getElementById('previewImage').src = '';
+    checkInput();
+}
+
+// Escape HTML
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Filter conversations
+function filterConversations(query) {
+    const items = document.querySelectorAll('.conversation-item');
+    query = query.toLowerCase();
+
+    items.forEach(item => {
+        const name = item.querySelector('.conversation-name')?.textContent.toLowerCase() || '';
+        if (name.includes(query)) {
+            item.style.display = 'flex';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+// Resizable sidebar
+const sidebar = document.getElementById('chatSidebar');
+const resizeHandle = document.getElementById('resizeHandle');
+
+let isResizing = false;
+
+if (resizeHandle) {
+    resizeHandle.addEventListener('mousedown', function(e) {
+        isResizing = true;
+        document.addEventListener('mousemove', resize);
+        document.addEventListener('mouseup', stopResize);
+    });
+}
+
+function resize(e) {
+    if (!isResizing) return;
+    const newWidth = e.clientX - sidebar.getBoundingClientRect().left;
+    if (newWidth >= 280 && newWidth <= 500) {
+        sidebar.style.width = newWidth + 'px';
+    }
+}
+
+function stopResize() {
+    isResizing = false;
+    document.removeEventListener('mousemove', resize);
+    document.removeEventListener('mouseup', stopResize);
+}
+
+// Scroll to bottom on load
+document.addEventListener('DOMContentLoaded', function() {
+    const messagesArea = document.getElementById('messagesArea');
+    if (messagesArea) {
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+    }
+
+    // Focus input if not blocked
+    const isBlocked = document.getElementById('isBlocked').value === 'true';
+    if (!isBlocked) {
+        document.getElementById('messageInput').focus();
+    }
+});
+
+// Handle enter key
+const messageInput = document.getElementById('messageInput');
+if (messageInput) {
+    messageInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            const sendBtn = document.getElementById('sendBtn');
+            if (!sendBtn.disabled) {
+                sendMessage();
+            }
+        }
+    });
+}
+
+// Handle escape key to close dropdown
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        const dropdown = document.getElementById('dropdownMenu');
+        if (dropdown.classList.contains('show')) {
+            dropdown.classList.remove('show');
+        }
+    }
+});
+</script>
+{% endblock %}

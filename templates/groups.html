@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Groups — Kildear{% endblock %}
+
+{% block content %}
+<div class="groups-page">
+  <div class="page-header-row">
+    <div>
+      <h1 class="page-title">Groups</h1>
+      <p class="page-subtitle">Connect with communities that share your interests</p>
+    </div>
+    <a href="{{ url_for('create_group') }}" class="btn btn-primary">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+      Create Group
+    </a>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tab-bar">
+    <button class="tab-btn {% if tab=='discover' %}active{% endif %}" onclick="switchTab('discover')">Discover</button>
+    <button class="tab-btn {% if tab=='my' %}active{% endif %}" onclick="switchTab('my')">My Groups</button>
+  </div>
+
+  <!-- Discover tab -->
+  <div class="tab-panel" id="tab-discover" {% if tab!='discover' %}style="display:none"{% endif %}>
+    {% if groups %}
+    <div class="groups-grid">
+      {% for group in groups %}
+      <div class="group-card card">
+        <div class="group-cover" style="{% if group.cover %}background-image:url('{{ group.cover }}'){% else %}background:linear-gradient(135deg,hsl({{ loop.index*47 % 360 }},60%,40%),hsl({{ (loop.index*47+60) % 360 }},60%,30%)){% endif %}">
+          <div class="group-avatar-on-cover">
+            {% if group.avatar %}
+              <img src="{{ group.avatar }}"
+                   class="avatar avatar-md" alt="{{ group.name }}">
+            {% else %}
+              <div class="avatar avatar-md avatar-placeholder" style="font-size:1.1rem">{{ group.name[0].upper() }}</div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="group-card-body">
+          <h3 class="group-name">
+            <a href="{{ url_for('group_detail', slug=group.slug) }}">{{ group.name }}</a>
+          </h3>
+          {% if group.description %}
+          <p class="group-desc">{{ group.description[:100] }}{% if group.description|length > 100 %}…{% endif %}</p>
+          {% endif %}
+          <div class="group-meta">
+            <span class="group-meta-item">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+              {{ group.member_count }} members
+            </span>
+            <span class="group-badge {% if group.is_private %}private{% else %}public{% endif %}">
+              {% if group.is_private %}🔒 Private{% else %}🌍 Public{% endif %}
+            </span>
+          </div>
+          <div class="group-card-actions">
+            <a href="{{ url_for('group_detail', slug=group.slug) }}" class="btn btn-ghost btn-sm">View</a>
+            {% if current_user not in group.members %}
+              <form action="{{ url_for('join_group', slug=group.slug) }}" method="POST" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-primary btn-sm">Join</button>
+              </form>
+            {% else %}
+              <span class="member-badge">✓ Member</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+      <div class="empty-state card">
+        <div class="empty-icon">👥</div>
+        <h3>No groups yet</h3>
+        <p>Be the first to create a community!</p>
+        <a href="{{ url_for('create_group') }}" class="btn btn-primary">Create Group</a>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- My Groups tab -->
+  <div class="tab-panel" id="tab-my" {% if tab!='my' %}style="display:none"{% endif %}>
+    {% if my_groups %}
+    <div class="groups-grid">
+      {% for group in my_groups %}
+      <div class="group-card card">
+        <div class="group-cover" style="{% if group.cover %}background-image:url('{{ group.cover }}'){% else %}background:linear-gradient(135deg,hsl({{ loop.index*47 % 360 }},60%,40%),hsl({{ (loop.index*47+60) % 360 }},60%,30%)){% endif %}">
+          <div class="group-avatar-on-cover">
+            {% if group.avatar %}
+              <img src="{{ group.avatar }}"
+                   class="avatar avatar-md" alt="{{ group.name }}">
+            {% else %}
+              <div class="avatar avatar-md avatar-placeholder" style="font-size:1.1rem">{{ group.name[0].upper() }}</div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="group-card-body">
+          <h3 class="group-name"><a href="{{ url_for('group_detail', slug=group.slug) }}">{{ group.name }}</a></h3>
+          {% if group.description %}
+          <p class="group-desc">{{ group.description[:100] }}{% if group.description|length > 100 %}…{% endif %}</p>
+          {% endif %}
+          <div class="group-meta">
+            <span class="group-meta-item">{{ group.member_count }} members</span>
+            {% if group.owner_id == current_user.id %}<span class="group-badge admin">👑 Admin</span>{% endif %}
+          </div>
+          <div class="group-card-actions">
+            <a href="{{ url_for('group_detail', slug=group.slug) }}" class="btn btn-primary btn-sm">Open</a>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+      <div class="empty-state card">
+        <div class="empty-icon">🚀</div>
+        <h3>You haven't joined any groups</h3>
+        <p>Discover and join communities that interest you.</p>
+        <button class="btn btn-primary" onclick="switchTab('discover')">Discover Groups</button>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+.groups-page{max-width:960px;margin:0 auto;padding:20px}
+.page-header-row{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem}
+.page-title{font-size:1.6rem;font-weight:800}
+.page-subtitle{color:var(--text-muted);font-size:.9rem;margin-top:.25rem}
+.tab-bar{display:flex;gap:.5rem;margin-bottom:1.5rem;border-bottom:1px solid rgba(255,255,255,.07);padding-bottom:0}
+.tab-btn{background:none;border:none;color:var(--text-muted);font-size:.9rem;font-weight:600;padding:.5rem 1rem;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:.2s}
+.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary)}
+.groups-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem}
+.group-card{overflow:hidden;padding:0}
+.group-cover{height:100px;background-size:cover;background-position:center;position:relative}
+.group-avatar-on-cover{position:absolute;bottom:-20px;left:1rem;border:3px solid var(--surface)}
+.group-avatar-on-cover .avatar{border-radius:.65rem}
+.group-card-body{padding:1.5rem 1rem 1rem}
+.group-name{font-size:.95rem;font-weight:700;margin-bottom:.35rem}
+.group-name a{color:var(--text);text-decoration:none}
+.group-name a:hover{color:var(--primary)}
+.group-desc{font-size:.82rem;color:var(--text-muted);line-height:1.5;margin-bottom:.5rem}
+.group-meta{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem}
+.group-meta-item{display:flex;align-items:center;gap:.3rem;font-size:.78rem;color:var(--text-muted)}
+.group-badge{font-size:.72rem;padding:.2rem .55rem;border-radius:.4rem;font-weight:600}
+.group-badge.public{background:rgba(74,222,128,.15);color:#4ade80}
+.group-badge.private{background:rgba(251,146,60,.15);color:#fb923c}
+.group-badge.admin{background:rgba(247,201,72,.15);color:#f7c948}
+.group-card-actions{display:flex;align-items:center;gap:.5rem}
+.member-badge{font-size:.8rem;color:#4ade80;font-weight:600}
+.empty-state{text-align:center;padding:3rem 2rem;margin-top:1rem}
+.empty-icon{font-size:2.5rem;margin-bottom:.75rem}
+.empty-state h3{font-size:1.15rem;margin-bottom:.4rem}
+.empty-state p{color:var(--text-muted);margin-bottom:1.25rem}
+</style>
+<script>
+function switchTab(name){
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>{
+    b.classList.toggle('active', b.textContent.toLowerCase().includes(name==='my'?'my':'discover'));
+  });
+  document.getElementById('tab-discover').style.display = name==='discover'?'block':'none';
+  document.getElementById('tab-my').style.display = name==='my'?'block':'none';
+}
+
+// Инициализация табов
+document.addEventListener('DOMContentLoaded', function() {
+  // Проверяем URL параметры
+  const urlParams = new URLSearchParams(window.location.search);
+  const tab = urlParams.get('tab');
+  if (tab === 'my') {
+    switchTab('my');
+  } else {
+    switchTab('discover');
+  }
+});
+</script>
+{% endblock %}

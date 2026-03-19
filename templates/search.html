@@ -1,0 +1,341 @@
+{% extends "base.html" %}
+{% block title %}Search{% if q %}: {{ q }}{% endif %} — Kildear{% endblock %}
+
+{% block head %}
+<style>
+  .search-page { max-width: 860px; margin: 0 auto; padding: 24px 16px 40px; }
+
+  /* Search bar */
+  .search-hero { margin-bottom: 28px; }
+  .search-form {
+    display: flex; gap: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 6px 6px 18px;
+    transition: border-color 0.2s;
+  }
+  .search-form:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-glow); }
+  .search-form input {
+    flex: 1; background: none; border: none; outline: none;
+    color: var(--text); font-size: 15px;
+  }
+  .search-form input::placeholder { color: var(--text-dim); }
+  .search-submit {
+    background: linear-gradient(135deg, var(--primary), #9b8fff);
+    border: none; border-radius: 99px;
+    color: #fff; font-size: 14px; font-weight: 600;
+    padding: 10px 22px; cursor: pointer;
+    transition: all 0.2s; display: flex; align-items: center; gap: 7px;
+    box-shadow: 0 4px 14px var(--primary-glow);
+  }
+  .search-submit:hover { transform: scale(1.03); }
+
+  /* Trending chips */
+  .trending-section { margin-bottom: 24px; }
+  .trending-label { font-size: 12px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px; }
+  .trend-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .trend-chip {
+    padding: 6px 14px; border-radius: 99px;
+    background: var(--card); border: 1px solid var(--border);
+    font-size: 13px; color: var(--text-muted); cursor: pointer;
+    transition: all 0.2s; text-decoration: none;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .trend-chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-glow); }
+  .trend-chip i { font-size: 11px; }
+
+  /* Tabs */
+  .search-tabs {
+    display: flex; gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+    overflow-x: auto;
+  }
+  .search-tab {
+    padding: 11px 20px;
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--text-muted); font-size: 13.5px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s; white-space: nowrap;
+    text-decoration: none; display: flex; align-items: center; gap: 7px;
+  }
+  .search-tab:hover { color: var(--text); }
+  .search-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+  .tab-count {
+    background: var(--card); border: 1px solid var(--border);
+    font-size: 10px; padding: 1px 6px; border-radius: 99px; color: var(--text-muted);
+  }
+
+  /* People results */
+  .people-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .person-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 16px;
+    text-align: center;
+    transition: all 0.2s;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  .person-card:hover { border-color: var(--border-hover); transform: translateY(-2px); }
+  .person-card .pname {
+    font-family: var(--font-head); font-size: 14px; font-weight: 700;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .person-card .phandle { font-size: 12px; color: var(--text-muted); }
+  .person-card .pbio { font-size: 12px; color: var(--text-muted); line-height: 1.5; max-width: 180px; }
+  .follow-btn {
+    margin-top: 4px; padding: 7px 18px;
+    border-radius: 99px; border: 1px solid var(--border);
+    background: none; color: var(--text-muted);
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: all 0.2s; width: 100%;
+  }
+  .follow-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-glow); }
+
+  /* Post results */
+  .results-list { display: flex; flex-direction: column; gap: 12px; }
+  .result-post {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    transition: border-color 0.2s;
+    text-decoration: none; color: inherit;
+    display: block;
+  }
+  .result-post:hover { border-color: var(--border-hover); }
+  .result-author { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+  .result-author .rname { font-weight: 600; font-size: 13.5px; }
+  .result-author .rhandle { font-size: 12px; color: var(--text-muted); }
+  .result-content { font-size: 14px; line-height: 1.6; color: var(--text); margin-bottom: 8px; }
+  .result-content .highlight { color: var(--primary); font-weight: 600; }
+  .result-media { border-radius: 10px; overflow: hidden; max-height: 180px; }
+  .result-media img { width: 100%; height: 100%; object-fit: cover; }
+  .result-meta { display: flex; gap: 14px; font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+
+  /* Group / channel cards */
+  .community-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 14px;
+  }
+  .community-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    display: flex; gap: 12px; align-items: flex-start;
+    transition: all 0.2s; text-decoration: none; color: inherit;
+  }
+  .community-card:hover { border-color: var(--border-hover); transform: translateY(-1px); }
+  .community-card img { width: 48px; height: 48px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }
+  .community-info .cname { font-weight: 700; font-size: 14px; margin-bottom: 3px; }
+  .community-info .cdesc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+  .community-info .cmeta { font-size: 11px; color: var(--text-dim); margin-top: 5px; display: flex; gap: 10px; }
+
+  /* No results */
+  .no-results {
+    text-align: center; padding: 60px 20px;
+    color: var(--text-muted);
+  }
+  .no-results .nr-icon { font-size: 52px; margin-bottom: 12px; opacity: 0.25; }
+  .no-results h3 { font-family: var(--font-head); font-size: 18px; color: var(--text); margin-bottom: 6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="search-page">
+
+  <!-- Search bar -->
+  <div class="search-hero">
+    <form method="GET" action="{{ url_for('search') }}" class="search-form">
+      <input type="hidden" name="tab" value="{{ tab }}"/>
+      <input type="text" name="q" value="{{ q }}" placeholder="Search people, posts, groups, channels…" autofocus/>
+      <button type="submit" class="search-submit">
+        <i class="fa-solid fa-magnifying-glass"></i> Search
+      </button>
+    </form>
+  </div>
+
+  {% if not q %}
+  <!-- Trending / suggestions when no query -->
+  <div class="trending-section">
+    <div class="trending-label"><i class="fa-solid fa-fire" style="color:var(--secondary);margin-right:6px"></i>Trending</div>
+    <div class="trend-chips">
+      <a href="?q=photography&tab=posts"   class="trend-chip"><i class="fa-solid fa-camera"></i> photography</a>
+      <a href="?q=music&tab=posts"          class="trend-chip"><i class="fa-solid fa-music"></i> music</a>
+      <a href="?q=art&tab=posts"            class="trend-chip"><i class="fa-solid fa-palette"></i> art</a>
+      <a href="?q=gaming&tab=groups"        class="trend-chip"><i class="fa-solid fa-gamepad"></i> gaming</a>
+      <a href="?q=technology&tab=channels"  class="trend-chip"><i class="fa-solid fa-microchip"></i> technology</a>
+      <a href="?q=travel&tab=posts"         class="trend-chip"><i class="fa-solid fa-plane"></i> travel</a>
+      <a href="?q=fitness&tab=posts"        class="trend-chip"><i class="fa-solid fa-dumbbell"></i> fitness</a>
+      <a href="?q=coding&tab=channels"      class="trend-chip"><i class="fa-solid fa-code"></i> coding</a>
+    </div>
+  </div>
+
+  <!-- People you may know -->
+  <div class="trending-label" style="margin-bottom:12px;"><i class="fa-solid fa-user-group" style="color:var(--primary);margin-right:6px"></i>People you may know</div>
+  <div class="people-grid" id="suggestions">
+    <div style="color:var(--text-muted);font-size:13px;grid-column:1/-1;text-align:center;padding:30px">
+      Start searching to discover people.
+    </div>
+  </div>
+
+  {% else %}
+  <!-- Result tabs -->
+  <div class="search-tabs">
+    <a href="?q={{ q }}&tab=people"   class="search-tab {% if tab=='people'   %}active{% endif %}">
+      <i class="fa-solid fa-user"></i> People
+      <span class="tab-count">{{ users|length }}</span>
+    </a>
+    <a href="?q={{ q }}&tab=posts"    class="search-tab {% if tab=='posts'    %}active{% endif %}">
+      <i class="fa-solid fa-grid-2"></i> Posts
+      <span class="tab-count">{{ posts|length }}</span>
+    </a>
+    <a href="?q={{ q }}&tab=groups"   class="search-tab {% if tab=='groups'   %}active{% endif %}">
+      <i class="fa-solid fa-users"></i> Groups
+      <span class="tab-count">{{ groups|length }}</span>
+    </a>
+    <a href="?q={{ q }}&tab=channels" class="search-tab {% if tab=='channels' %}active{% endif %}">
+      <i class="fa-solid fa-satellite-dish"></i> Channels
+      <span class="tab-count">{{ channels|length }}</span>
+    </a>
+  </div>
+
+  <!-- People tab -->
+  {% if tab == 'people' or not tab %}
+    {% if users %}
+    <div class="people-grid">
+      {% for u in users %}
+      <div class="person-card">
+        <a href="{{ url_for('profile', username=u.username) }}">
+          <img src="{{ u.avatar }}" class="avatar avatar-md" alt="{{ u.username }}"/>
+        </a>
+        <a href="{{ url_for('profile', username=u.username) }}" class="pname">
+          {{ u.display_name or u.username }}
+          {% if u.is_verified %}<i class="fa-solid fa-circle-check verified-icon"></i>{% endif %}
+        </a>
+        <div class="phandle">@{{ u.username }}</div>
+        {% if u.bio %}<div class="pbio">{{ u.bio[:60] }}{% if u.bio|length > 60 %}…{% endif %}</div>{% endif %}
+        <div style="font-size:12px;color:var(--text-muted);">{{ u.follower_count }} followers</div>
+        {% if u.id != current_user.id %}
+        <button class="follow-btn" onclick="quickFollow('{{ u.username }}', this)">
+          + Follow
+        </button>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="no-results">
+      <div class="nr-icon">🔍</div>
+      <h3>No people found</h3>
+      <p>Try a different search term.</p>
+    </div>
+    {% endif %}
+
+  <!-- Posts tab -->
+  {% elif tab == 'posts' %}
+    {% if posts %}
+    <div class="results-list">
+      {% for post in posts %}
+      <a href="{{ url_for('view_post', post_id=post.id) }}" class="result-post">
+        <div class="result-author">
+          <img src="{{ post.author.avatar }}" class="avatar avatar-xs" alt=""/>
+          <span class="rname">{{ post.author.display_name or post.author.username }}</span>
+          <span class="rhandle">@{{ post.author.username }}</span>
+          <span style="margin-left:auto;font-size:11px;color:var(--text-dim)">{{ post.created_at.strftime('%b %d') }}</span>
+        </div>
+        {% if post.content %}
+        <div class="result-content">{{ post.content[:200] }}{% if post.content|length > 200 %}…{% endif %}</div>
+        {% endif %}
+        {% if post.media_url and post.media_type == 'image' %}
+        <div class="result-media"><img src="{{ post.media_url }}" alt="" loading="lazy"/></div>
+        {% endif %}
+        <div class="result-meta">
+          <span><i class="fa-regular fa-heart"></i> {{ post.like_count }}</span>
+          <span><i class="fa-regular fa-comment"></i> {{ post.comment_count }}</span>
+          <span><i class="fa-solid fa-eye"></i> {{ post.views }}</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="no-results">
+      <div class="nr-icon">📝</div>
+      <h3>No posts found</h3>
+      <p>Nothing matched "<strong>{{ q }}</strong>".</p>
+    </div>
+    {% endif %}
+
+  <!-- Groups tab -->
+  {% elif tab == 'groups' %}
+    {% if groups %}
+    <div class="community-grid">
+      {% for g in groups %}
+      <a href="{{ url_for('group_detail', slug=g.slug) }}" class="community-card">
+        <img src="{{ g.avatar }}" alt="{{ g.name }}"/>
+        <div class="community-info">
+          <div class="cname">{{ g.name }}</div>
+          <div class="cdesc">{{ g.description[:60] }}{% if g.description|length > 60 %}…{% endif %}</div>
+          <div class="cmeta">
+            <span><i class="fa-solid fa-users"></i> {{ g.member_count }} members</span>
+            {% if g.is_private %}<span><i class="fa-solid fa-lock"></i> Private</span>{% endif %}
+          </div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="no-results">
+      <div class="nr-icon">👥</div>
+      <h3>No groups found</h3>
+    </div>
+    {% endif %}
+
+  <!-- Channels tab -->
+  {% elif tab == 'channels' %}
+    {% if channels %}
+    <div class="community-grid">
+      {% for c in channels %}
+      <a href="{{ url_for('channel_detail', slug=c.slug) }}" class="community-card">
+        <img src="{{ c.avatar }}" alt="{{ c.name }}"/>
+        <div class="community-info">
+          <div class="cname">{{ c.name }}</div>
+          <div class="cdesc">{{ c.description[:60] }}{% if c.description|length > 60 %}…{% endif %}</div>
+          <div class="cmeta">
+            <span><i class="fa-solid fa-satellite-dish"></i> {{ c.sub_count }} subscribers</span>
+          </div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="no-results">
+      <div class="nr-icon">📡</div>
+      <h3>No channels found</h3>
+    </div>
+    {% endif %}
+  {% endif %}
+  {% endif %}
+
+</div>
+
+<script>
+function quickFollow(username, btn) {
+  fetch(`/follow/${username}`, {
+    method: 'POST',
+    headers: { 'X-CSRFToken': '{{ csrf_token() }}' },
+    credentials: 'same-origin',
+  }).then(r=>r.json()).then(d=>{
+    btn.textContent = d.following ? '✓ Following' : '+ Follow';
+    btn.style.color = d.following ? 'var(--success)' : '';
+  });
+}
+</script>
+{% endblock %}

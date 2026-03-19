@@ -1,0 +1,5 @@
+from kildear import app, db
+with app.app_context():
+    db.create_all()
+    print("База данных создана!")
+exit()

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ error_code }} — Kildear</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07070f;--surface:rgba(255,255,255,.04);--primary:#7c6fff;--secondary:#ff6b9d;--accent:#00d4ff;
+  --text:#e8e8f0;--text-muted:rgba(232,232,240,.45);
+}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.orb{position:fixed;border-radius:50%;filter:blur(80px);pointer-events:none;z-index:0}
+.orb1{width:500px;height:500px;background:radial-gradient(circle,rgba(124,111,255,.18),transparent 70%);top:-150px;left:-150px}
+.orb2{width:400px;height:400px;background:radial-gradient(circle,rgba(255,107,157,.14),transparent 70%);bottom:-100px;right:-100px}
+.grid{position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:40px 40px;z-index:0}
+.error-card{position:relative;z-index:1;text-align:center;max-width:480px;padding:3rem 2.5rem;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:1.5rem;backdrop-filter:blur(16px)}
+.error-code{font-family:'Syne',sans-serif;font-size:7rem;font-weight:800;line-height:1;background:linear-gradient(135deg,var(--primary),var(--secondary));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.error-title{font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:700;margin:.5rem 0}
+.error-desc{color:var(--text-muted);font-size:.95rem;line-height:1.65;margin-bottom:2rem}
+.btn-group{display:flex;gap:.75rem;justify-content:center;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.4rem;border-radius:.65rem;font-size:.9rem;font-weight:600;text-decoration:none;border:none;cursor:pointer;transition:.2s}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:#6b5ee0;transform:translateY(-1px)}
+.btn-ghost{background:rgba(255,255,255,.06);color:var(--text);border:1px solid rgba(255,255,255,.1)}
+.btn-ghost:hover{background:rgba(255,255,255,.1)}
+.error-emoji{font-size:3rem;margin-bottom:.75rem;display:block}
+/* specific messages */
+.e429 .error-code{font-size:5.5rem}
+</style>
+</head>
+<body>
+<div class="grid"></div>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+
+<div class="error-card {% if error_code == 429 %}e429{% endif %}">
+  {% if error_code == 404 %}
+    <span class="error-emoji">🌌</span>
+    <div class="error-code">404</div>
+    <h1 class="error-title">Lost in Space</h1>
+    <p class="error-desc">The page you're looking for doesn't exist or has been moved to another galaxy.</p>
+  {% elif error_code == 403 %}
+    <span class="error-emoji">🚫</span>
+    <div class="error-code">403</div>
+    <h1 class="error-title">Access Denied</h1>
+    <p class="error-desc">You don't have permission to view this page. Log in or check your access rights.</p>
+  {% elif error_code == 429 %}
+    <span class="error-emoji">⚡</span>
+    <div class="error-code">429</div>
+    <h1 class="error-title">Too Many Requests</h1>
+    <p class="error-desc">Slow down! You're making requests faster than we can handle them. Please wait a moment before trying again.</p>
+  {% elif error_code == 413 %}
+    <span class="error-emoji">📦</span>
+    <div class="error-code">413</div>
+    <h1 class="error-title">File Too Large</h1>
+    <p class="error-desc">The file you tried to upload exceeds the size limit. Please use a smaller file.</p>
+  {% else %}
+    <span class="error-emoji">💥</span>
+    <div class="error-code">500</div>
+    <h1 class="error-title">Something Broke</h1>
+    <p class="error-desc">Our servers encountered an unexpected error. We've been notified and are working on a fix.</p>
+  {% endif %}
+
+  <div class="btn-group">
+    <a href="/" class="btn btn-primary">← Go Home</a>
+    <button onclick="history.back()" class="btn btn-ghost">Go Back</button>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}Edit Profile — Kildear{% endblock %}
+
+{% block content %}
+<div class="edit-profile-layout">
+  <div class="card edit-profile-card">
+    <div class="edit-profile-header">
+      <h2>Edit Profile</h2>
+      <a href="{{ url_for('profile', username=current_user.username) }}" class="btn btn-ghost btn-sm">← Back to profile</a>
+    </div>
+
+    <form action="{{ url_for('edit_profile') }}" method="POST" enctype="multipart/form-data" id="editProfileForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <!-- Cover photo -->
+      <div class="edit-cover-section">
+        <label class="section-label">Cover Photo</label>
+        <div class="cover-preview" id="coverPreview"
+             style="{% if current_user.cover_photo %}background-image:url('{{ url_for('static', filename='uploads/covers/' + current_user.cover_photo) }}'){% else %}background:linear-gradient(135deg,var(--primary),var(--secondary)){% endif %}">
+          <label class="cover-upload-overlay">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            Upload Cover
+            <input type="file" name="cover_photo" accept="image/*" class="hidden"
+                   onchange="previewCover(this)">
+          </label>
+        </div>
+      </div>
+
+      <!-- Avatar -->
+      <div class="edit-avatar-section">
+        <label class="section-label">Profile Picture</label>
+        <div class="avatar-edit-row">
+          <div class="avatar-preview-wrap">
+            {% if current_user.avatar %}
+              <img src="{{ url_for('static', filename='uploads/avatars/' + current_user.avatar) }}"
+                   class="avatar avatar-xl" id="avatarPreview" alt="Avatar">
+            {% else %}
+              <div class="avatar avatar-xl avatar-placeholder" id="avatarPreviewPlaceholder"
+                   style="font-size:2rem">{{ current_user.username[0].upper() }}</div>
+            {% endif %}
+          </div>
+          <div>
+            <label class="btn btn-outline btn-sm">
+              Choose Photo
+              <input type="file" name="avatar" accept="image/*" class="hidden" onchange="previewAvatar(this)">
+            </label>
+            <p class="field-hint">JPG, PNG, GIF or WebP. Max 10MB.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="edit-fields">
+        <!-- Display name -->
+        <div class="field-group">
+          <label class="field-label" for="displayName">Display Name</label>
+          <input type="text" id="displayName" name="display_name" class="field-input"
+                 value="{{ current_user.display_name or '' }}" maxlength="60"
+                 placeholder="{{ current_user.username }}">
+          <span class="field-hint">This is how your name appears on Kildear.</span>
+        </div>
+
+        <!-- Bio -->
+        <div class="field-group">
+          <label class="field-label" for="bioField">Bio</label>
+          <textarea id="bioField" name="bio" class="field-textarea" maxlength="300"
+                    placeholder="Tell the world about yourself…" oninput="bioCounter(this)">{{ current_user.bio or '' }}</textarea>
+          <div class="field-footer"><span id="bioCount">{{ (current_user.bio or '')|length }}</span>/300</div>
+        </div>
+
+        <!-- Website -->
+        <div class="field-group">
+          <label class="field-label" for="websiteField">Website</label>
+          <input type="url" id="websiteField" name="website" class="field-input"
+                 value="{{ current_user.website or '' }}" placeholder="https://yoursite.com">
+        </div>
+
+        <!-- Location -->
+        <div class="field-group">
+          <label class="field-label" for="locationField">Location</label>
+          <input type="text" id="locationField" name="location" class="field-input"
+                 value="{{ current_user.location or '' }}" maxlength="100" placeholder="City, Country">
+        </div>
+
+        <!-- Accent color -->
+        <div class="field-group">
+          <label class="field-label">Profile Accent Color</label>
+          <div class="color-picker-row">
+            {% set colors = ['#7c6fff','#ff6b9d','#00d4ff','#f7c948','#4ade80','#fb923c','#e879f9','#38bdf8'] %}
+            {% for color in colors %}
+            <label class="color-swatch {% if current_user.accent_color == color %}selected{% endif %}"
+                   style="background:{{ color }}" title="{{ color }}">
+              <input type="radio" name="accent_color" value="{{ color }}" class="hidden"
+                     {% if current_user.accent_color == color %}checked{% endif %}
+                     onchange="updateAccentPreview('{{ color }}')">
+            </label>
+            {% endfor %}
+            <label class="color-swatch color-custom" title="Custom color">
+              <input type="color" name="accent_color_custom" value="{{ current_user.accent_color or '#7c6fff' }}"
+                     onchange="updateAccentPreview(this.value)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/></svg>
+            </label>
+          </div>
+          <div class="accent-preview" id="accentPreview">
+            <div class="accent-preview-bar" id="accentPreviewBar"
+                 style="background:{{ current_user.accent_color or '#7c6fff' }}"></div>
+            <span>Accent preview</span>
+          </div>
+        </div>
+
+        <!-- Privacy -->
+        <div class="field-group">
+          <label class="field-label">Privacy</label>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <span class="toggle-title">Private Account</span>
+              <span class="toggle-desc">Only approved followers can see your posts</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" name="is_private" {% if current_user.is_private %}checked{% endif %}>
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Change password -->
+        <div class="field-group">
+          <label class="field-label">Change Password</label>
+          <input type="password" name="current_password" class="field-input" placeholder="Current password" autocomplete="current-password">
+          <div style="height:.5rem"></div>
+          <input type="password" name="new_password" class="field-input" placeholder="New password (leave blank to keep)" autocomplete="new-password">
+        </div>
+      </div>
+
+      <div class="edit-profile-actions">
+        <a href="{{ url_for('profile', username=current_user.username) }}" class="btn btn-ghost">Cancel</a>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+.edit-profile-layout{max-width:680px;margin:0 auto}
+.edit-profile-card{padding:2rem}
+.edit-profile-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:2rem}
+.edit-profile-header h2{font-size:1.4rem;font-weight:700}
+/* Cover */
+.edit-cover-section{margin-bottom:1.5rem}
+.cover-preview{height:160px;border-radius:.85rem;background-size:cover;background-position:center;position:relative;overflow:hidden}
+.cover-upload-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:.5rem;background:rgba(0,0,0,.4);color:#fff;font-size:.875rem;cursor:pointer;opacity:0;transition:.2s}
+.cover-preview:hover .cover-upload-overlay{opacity:1}
+/* Avatar */
+.edit-avatar-section{margin-bottom:1.75rem}
+.avatar-edit-row{display:flex;align-items:center;gap:1.25rem}
+.avatar-preview-wrap{flex-shrink:0}
+/* Fields */
+.edit-fields{display:flex;flex-direction:column;gap:1.25rem}
+.section-label,.field-label{display:block;font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.5rem}
+.field-input,.field-textarea{width:100%;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:.65rem;padding:.7rem 1rem;color:var(--text);font-size:.925rem;transition:.2s;font-family:inherit}
+.field-input:focus,.field-textarea:focus{outline:none;border-color:var(--primary);background:rgba(124,111,255,.06)}
+.field-textarea{min-height:90px;resize:vertical}
+.field-hint{font-size:.78rem;color:var(--text-muted);margin-top:.3rem}
+.field-footer{text-align:right;font-size:.75rem;color:var(--text-muted);margin-top:.2rem}
+/* Color picker */
+.color-picker-row{display:flex;flex-wrap:wrap;gap:.6rem;margin-bottom:.75rem}
+.color-swatch{width:32px;height:32px;border-radius:50%;cursor:pointer;border:3px solid transparent;transition:.15s;display:flex;align-items:center;justify-content:center}
+.color-swatch.selected,.color-swatch:hover{border-color:#fff;transform:scale(1.15)}
+.color-custom{background:rgba(255,255,255,.1)!important;border-color:rgba(255,255,255,.2)!important;overflow:hidden;position:relative}
+.color-custom input[type=color]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.accent-preview{display:flex;align-items:center;gap:.75rem;font-size:.8rem;color:var(--text-muted)}
+.accent-preview-bar{width:60px;height:8px;border-radius:4px;transition:.3s}
+/* Toggle */
+.toggle-row{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:.65rem;padding:.85rem 1rem}
+.toggle-title{font-weight:600;font-size:.9rem}
+.toggle-desc{display:block;font-size:.78rem;color:var(--text-muted);margin-top:.15rem}
+.toggle-switch{position:relative;width:44px;height:24px;flex-shrink:0}
+.toggle-switch input{opacity:0;position:absolute}
+.toggle-track{position:absolute;inset:0;background:rgba(255,255,255,.15);border-radius:999px;cursor:pointer;transition:.2s}
+.toggle-track::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:.2s}
+.toggle-switch input:checked+.toggle-track{background:var(--primary)}
+.toggle-switch input:checked+.toggle-track::after{transform:translateX(20px)}
+/* Actions */
+.edit-profile-actions{display:flex;justify-content:flex-end;gap:.75rem;margin-top:2rem;padding-top:1.5rem;border-top:1px solid rgba(255,255,255,.07)}
+</style>
+<script>
+function previewCover(input){
+  if(!input.files[0]) return;
+  const url=URL.createObjectURL(input.files[0]);
+  document.getElementById('coverPreview').style.cssText=`background-image:url('${url}');background-size:cover;background-position:center`;
+}
+function previewAvatar(input){
+  if(!input.files[0]) return;
+  const url=URL.createObjectURL(input.files[0]);
+  let img=document.getElementById('avatarPreview');
+  if(!img){img=document.createElement('img');img.id='avatarPreview';img.className='avatar avatar-xl';document.getElementById('avatarPreviewPlaceholder')?.replaceWith(img);}
+  img.src=url;
+}
+function bioCounter(el){document.getElementById('bioCount').textContent=el.value.length;}
+function updateAccentPreview(color){
+  document.getElementById('accentPreviewBar').style.background=color;
+}
+document.querySelectorAll('.color-swatch').forEach(s=>{
+  s.addEventListener('click',()=>{document.querySelectorAll('.color-swatch').forEach(x=>x.classList.remove('selected'));s.classList.add('selected');});
+});
+</script>
+{% endblock %}

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Channels — Kildear{% endblock %}
+{% block content %}
+<div class="channels-page">
+  <div class="page-header-row">
+    <div>
+      <h1 class="page-title">Channels</h1>
+      <p class="page-subtitle">Follow channels for curated content from creators you love</p>
+    </div>
+    <a href="{{ url_for('create_channel') }}" class="btn btn-primary">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Create Channel
+    </a>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab-btn {% if tab!='subscribed' %}active{% endif %}" onclick="switchChannelTab('all')">All Channels</button>
+    <button class="tab-btn {% if tab=='subscribed' %}active{% endif %}" onclick="switchChannelTab('subscribed')">Subscribed</button>
+  </div>
+
+  <div class="tab-panel" id="tab-all" {% if tab=='subscribed' %}style="display:none"{% endif %}>
+    {% if channels %}
+    <div class="channels-grid">
+      {% for ch in channels %}
+      <div class="channel-card card">
+        <div class="channel-card-top" style="{% if ch.cover %}background-image:url('{{ url_for('static', filename='uploads/channels/' + ch.cover) }}');background-size:cover;background-position:center{% else %}background:linear-gradient(135deg,hsl({{ loop.index*67%360 }},65%,35%),hsl({{ (loop.index*67+80)%360 }},65%,25%)){% endif %}">
+          {% if ch.avatar %}
+            <img src="{{ url_for('static', filename='uploads/channels/' + ch.avatar) }}" class="ch-avatar avatar avatar-md" alt="{{ ch.name }}">
+          {% else %}
+            <div class="ch-avatar avatar avatar-md avatar-placeholder" style="font-size:1.1rem;border-radius:50%">{{ ch.name[0].upper() }}</div>
+          {% endif %}
+        </div>
+        <div class="channel-card-body">
+          <div class="channel-title-row">
+            <a href="{{ url_for('channel_detail', channel_id=ch.id) }}" class="channel-name">{{ ch.name }}</a>
+            {% if ch.is_verified %}<span class="verified-badge">✓</span>{% endif %}
+          </div>
+          {% if ch.description %}<p class="channel-desc">{{ ch.description[:90] }}{% if ch.description|length>90 %}…{% endif %}</p>{% endif %}
+          <div class="channel-stats">
+            <span>{{ ch.subscribers.count() }} subscribers</span>
+            <span>·</span>
+            <span>{{ ch.posts.count() }} posts</span>
+          </div>
+          <button class="btn {% if current_user in ch.subscribers %}btn-outline{% else %}btn-primary{% endif %} btn-sm sub-btn"
+                  onclick="toggleSubscribe({{ ch.id }}, this)">
+            {% if current_user in ch.subscribers %}Subscribed{% else %}Subscribe{% endif %}
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+      <div class="empty-state card"><div class="empty-icon">📡</div><h3>No channels yet</h3><p>Start the first channel on Kildear!</p><a href="{{ url_for('create_channel') }}" class="btn btn-primary">Create Channel</a></div>
+    {% endif %}
+  </div>
+
+  <div class="tab-panel" id="tab-subscribed" {% if tab!='subscribed' %}style="display:none"{% endif %}>
+    {% if subscribed %}
+    <div class="channels-grid">
+      {% for ch in subscribed %}
+      <div class="channel-card card">
+        <div class="channel-card-top" style="{% if ch.cover %}background-image:url('{{ url_for('static', filename='uploads/channels/' + ch.cover) }}');background-size:cover;background-position:center{% else %}background:linear-gradient(135deg,var(--primary),var(--secondary)){% endif %}">
+          {% if ch.avatar %}<img src="{{ url_for('static', filename='uploads/channels/' + ch.avatar) }}" class="ch-avatar avatar avatar-md" alt="{{ ch.name }}">
+          {% else %}<div class="ch-avatar avatar avatar-md avatar-placeholder" style="font-size:1.1rem;border-radius:50%">{{ ch.name[0].upper() }}</div>{% endif %}
+        </div>
+        <div class="channel-card-body">
+          <div class="channel-title-row"><a href="{{ url_for('channel_detail', channel_id=ch.id) }}" class="channel-name">{{ ch.name }}</a>{% if ch.is_verified %}<span class="verified-badge">✓</span>{% endif %}</div>
+          <div class="channel-stats"><span>{{ ch.subscribers.count() }} subscribers</span></div>
+          <a href="{{ url_for('channel_detail', channel_id=ch.id) }}" class="btn btn-primary btn-sm">View Channel</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+      <div class="empty-state card"><div class="empty-icon">📡</div><h3>No subscriptions yet</h3><p>Discover channels and subscribe to the ones you love.</p><button class="btn btn-primary" onclick="switchChannelTab('all')">Browse Channels</button></div>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+.channels-page{max-width:960px;margin:0 auto}
+.page-header-row{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem}
+.page-title{font-size:1.6rem;font-weight:800}
+.page-subtitle{color:var(--text-muted);font-size:.9rem;margin-top:.25rem}
+.tab-bar{display:flex;gap:.5rem;margin-bottom:1.5rem;border-bottom:1px solid rgba(255,255,255,.07)}
+.tab-btn{background:none;border:none;color:var(--text-muted);font-size:.9rem;font-weight:600;padding:.5rem 1rem;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:.2s}
+.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary)}
+.channels-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem}
+.channel-card{overflow:hidden;padding:0}
+.channel-card-top{height:90px;position:relative;display:flex;align-items:flex-end;padding:.75rem}
+.ch-avatar{border:3px solid var(--surface)!important;position:absolute;bottom:-18px;left:1rem}
+.channel-card-body{padding:1.35rem 1rem .85rem}
+.channel-title-row{display:flex;align-items:center;gap:.4rem;margin-bottom:.3rem}
+.channel-name{font-weight:700;font-size:.92rem;color:var(--text);text-decoration:none}
+.channel-name:hover{color:var(--primary)}
+.verified-badge{background:var(--primary);color:#fff;border-radius:50%;width:16px;height:16px;font-size:.65rem;display:inline-flex;align-items:center;justify-content:center;font-weight:700}
+.channel-desc{font-size:.8rem;color:var(--text-muted);line-height:1.5;margin-bottom:.5rem}
+.channel-stats{font-size:.78rem;color:var(--text-muted);margin-bottom:.65rem;display:flex;gap:.35rem}
+.empty-state{text-align:center;padding:3rem 2rem;margin-top:1rem}
+.empty-icon{font-size:2.5rem;margin-bottom:.75rem}
+.empty-state h3{font-size:1.15rem;margin-bottom:.4rem}
+.empty-state p{color:var(--text-muted);margin-bottom:1.25rem}
+</style>
+<script>
+function switchChannelTab(name){
+  document.querySelectorAll('.tab-btn').forEach(b=>{
+    b.classList.toggle('active',(name==='all' && b.textContent.includes('All'))||(name==='subscribed' && b.textContent.includes('Subscribed')));
+  });
+  document.getElementById('tab-all').style.display=name==='all'?'block':'none';
+  document.getElementById('tab-subscribed').style.display=name==='subscribed'?'block':'none';
+}
+</script>
+{% endblock %}

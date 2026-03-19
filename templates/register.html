@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Create Account — Kildear</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <style>
+    :root {
+      --bg: #07070f; --surface: #0f0f1a;
+      --border: rgba(255,255,255,0.08); --border-hover: rgba(255,255,255,0.16);
+      --primary: #7c6fff; --primary-glow: rgba(124,111,255,0.25);
+      --secondary: #ff6b9d; --accent: #00d4ff;
+      --text: #e4e4f0; --text-muted: #7070a0; --text-dim: #4a4a70;
+      --danger: #ff4757; --success: #22d3a0; --warning: #ffb347;
+      --font-head: 'Syne', sans-serif; --font-body: 'DM Sans', sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-body);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-font-smoothing: antialiased;
+      padding: 20px;
+    }
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background:
+        radial-gradient(ellipse 60% 50% at 80% 0%, rgba(255,107,157,0.15) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 60% at 10% 100%, rgba(124,111,255,0.14) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        repeating-linear-gradient(0deg,   transparent, transparent 49px, rgba(255,255,255,0.014) 49px, rgba(255,255,255,0.014) 50px),
+        repeating-linear-gradient(90deg,  transparent, transparent 49px, rgba(255,255,255,0.014) 49px, rgba(255,255,255,0.014) 50px);
+      pointer-events: none;
+    }
+
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(70px);
+      opacity: 0.35;
+      pointer-events: none;
+      animation: float 9s ease-in-out infinite;
+    }
+    .orb-1 { width: 280px; height: 280px; background: var(--secondary); top: -80px; right: -80px; animation-delay: 0s; }
+    .orb-2 { width: 220px; height: 220px; background: var(--primary); bottom: -60px; left: -60px; animation-delay: 4s; }
+    @keyframes float {
+      0%, 100% { transform: translateY(0) rotate(0deg); }
+      50%       { transform: translateY(-18px) rotate(5deg); }
+    }
+
+    .auth-wrapper {
+      position: relative; z-index: 2;
+      width: 100%; max-width: 460px;
+    }
+
+    .brand { text-align: center; margin-bottom: 24px; }
+    .brand-mark {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 48px; height: 48px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      border-radius: 14px;
+      font-family: var(--font-head); font-weight: 800; font-size: 24px;
+      color: #fff; box-shadow: 0 8px 32px var(--primary-glow);
+      margin-bottom: 10px;
+    }
+    .brand-name {
+      font-family: var(--font-head); font-size: 26px; font-weight: 800;
+      background: linear-gradient(90deg, var(--primary), var(--secondary));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .brand-tagline { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+
+    .auth-card {
+      background: rgba(15,15,26,0.75);
+      backdrop-filter: blur(24px);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 32px;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.55), 0 0 80px rgba(255,107,157,0.05);
+    }
+    .auth-title { font-family: var(--font-head); font-size: 20px; font-weight: 700; margin-bottom: 5px; }
+    .auth-sub   { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
+
+    .flash { padding: 11px 15px; border-radius: 10px; margin-bottom: 14px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+    .flash-error   { background: rgba(255,71,87,0.1);  border:1px solid rgba(255,71,87,0.3);  color:#ff4757; }
+    .flash-success { background: rgba(34,211,160,0.1); border:1px solid rgba(34,211,160,0.3); color:#22d3a0; }
+
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 420px) { .form-row { grid-template-columns: 1fr; } }
+    .form-group { margin-bottom: 14px; }
+    .form-label { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+    .input-wrap { position: relative; }
+    .input-wrap i.icon { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 13px; pointer-events: none; transition: color 0.2s; }
+    .form-control {
+      width: 100%;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 11px 13px 11px 40px;
+      color: var(--text);
+      font-family: var(--font-body); font-size: 14px;
+      outline: none; transition: all 0.2s;
+    }
+    .form-control:focus {
+      border-color: var(--primary);
+      background: rgba(124,111,255,0.07);
+      box-shadow: 0 0 0 3px rgba(124,111,255,0.18);
+    }
+    .form-control:focus ~ i.icon { color: var(--primary); }
+    .form-control::placeholder { color: var(--text-dim); }
+    .form-control.valid   { border-color: var(--success); }
+    .form-control.invalid { border-color: var(--danger); }
+
+    .toggle-pw {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; color: var(--text-dim); cursor: pointer;
+      font-size: 13px; padding: 2px; transition: color 0.2s;
+    }
+    .toggle-pw:hover { color: var(--text-muted); }
+
+    /* Password strength */
+    .strength-bar { display: flex; gap: 4px; margin-top: 6px; }
+    .strength-seg { height: 3px; flex: 1; border-radius: 99px; background: var(--border); transition: background 0.3s; }
+    .strength-seg.weak   { background: var(--danger);  }
+    .strength-seg.fair   { background: var(--warning); }
+    .strength-seg.strong { background: var(--success); }
+    .strength-label { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+    /* Field hint */
+    .hint { font-size: 11px; color: var(--text-dim); margin-top: 5px; }
+
+    .terms { font-size: 12px; color: var(--text-muted); margin-bottom: 18px; line-height: 1.6; }
+    .terms a { color: var(--primary); }
+
+    .btn-submit {
+      width: 100%; padding: 13px;
+      border: none; border-radius: 12px;
+      background: linear-gradient(135deg, var(--primary), #9b8fff);
+      color: #fff;
+      font-family: var(--font-head); font-size: 15px; font-weight: 700;
+      cursor: pointer; transition: all 0.25s;
+      box-shadow: 0 6px 24px var(--primary-glow);
+      position: relative; overflow: hidden;
+    }
+    .btn-submit::after { content:''; position:absolute; inset:0; background:linear-gradient(rgba(255,255,255,0.08),transparent); pointer-events:none; }
+    .btn-submit:hover { transform: translateY(-2px); box-shadow: 0 10px 36px var(--primary-glow); }
+    .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .auth-footer { text-align: center; margin-top: 18px; font-size: 13px; color: var(--text-muted); }
+    .auth-footer a { color: var(--primary); font-weight: 600; }
+    .auth-footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+
+  <div class="auth-wrapper">
+    <div class="brand">
+      <div class="brand-mark">K</div>
+      <div class="brand-name">Kildear</div>
+      <div class="brand-tagline">Join millions of creators worldwide</div>
+    </div>
+
+    <div class="auth-card">
+      <div class="auth-title">Create your account</div>
+      <div class="auth-sub">Free forever. No credit card required.</div>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+          <div class="flash flash-{{ cat }}">
+            <i class="fa-solid fa-{% if cat=='error' %}circle-xmark{% else %}circle-check{% endif %}"></i>
+            {{ msg }}
+          </div>
+        {% endfor %}
+      {% endwith %}
+
+      <form method="POST" action="{{ url_for('register') }}" id="regForm" autocomplete="on" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="username">Username</label>
+            <div class="input-wrap">
+              <input class="form-control" type="text" id="username" name="username"
+                     placeholder="coolname" autocomplete="username"
+                     maxlength="40" required/>
+              <i class="fa-solid fa-at icon"></i>
+            </div>
+            <div class="hint" id="usernameHint">Letters, numbers, underscores · 3–40 chars</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="email">Email</label>
+            <div class="input-wrap">
+              <input class="form-control" type="email" id="email" name="email"
+                     placeholder="you@example.com" autocomplete="email" required/>
+              <i class="fa-solid fa-envelope icon"></i>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <div class="input-wrap">
+            <input class="form-control" type="password" id="password" name="password"
+                   placeholder="Min. 8 characters" autocomplete="new-password"
+                   minlength="8" required/>
+            <i class="fa-solid fa-lock icon"></i>
+            <button type="button" class="toggle-pw" onclick="togglePw('password',this)">
+              <i class="fa-solid fa-eye"></i>
+            </button>
+          </div>
+          <div class="strength-bar" id="strengthBar">
+            <div class="strength-seg" id="s1"></div>
+            <div class="strength-seg" id="s2"></div>
+            <div class="strength-seg" id="s3"></div>
+            <div class="strength-seg" id="s4"></div>
+          </div>
+          <div class="strength-label" id="strengthLabel">Enter a password</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="confirm">Confirm Password</label>
+          <div class="input-wrap">
+            <input class="form-control" type="password" id="confirm" name="confirm"
+                   placeholder="Repeat password" autocomplete="new-password"
+                   minlength="8" required/>
+            <i class="fa-solid fa-shield-halved icon"></i>
+            <button type="button" class="toggle-pw" onclick="togglePw('confirm',this)">
+              <i class="fa-solid fa-eye"></i>
+            </button>
+          </div>
+        </div>
+
+        <p class="terms">
+          By creating an account, you agree to our
+          <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>.
+          You must be 13+ to use Kildear.
+        </p>
+
+        <button type="submit" class="btn-submit" id="submitBtn">Create Account</button>
+      </form>
+
+      <div class="auth-footer">
+        Already have an account? <a href="{{ url_for('login') }}">Log in →</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function togglePw(id, btn) {
+      const el = document.getElementById(id);
+      const ic = btn.querySelector('i');
+      el.type = el.type === 'password' ? 'text' : 'password';
+      ic.className = el.type === 'password' ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+    }
+
+    // Password strength
+    const pwEl = document.getElementById('password');
+    const segs = [document.getElementById('s1'), document.getElementById('s2'),
+                  document.getElementById('s3'), document.getElementById('s4')];
+    const lbl  = document.getElementById('strengthLabel');
+    const levels = ['', 'weak', 'fair', 'fair', 'strong'];
+    const labels = ['Enter a password', 'Too weak', 'Getting there…', 'Almost strong', '✓ Strong password'];
+
+    pwEl.addEventListener('input', () => {
+      const v = pwEl.value;
+      let score = 0;
+      if (v.length >= 8)  score++;
+      if (/[A-Z]/.test(v)) score++;
+      if (/[0-9]/.test(v)) score++;
+      if (/[^A-Za-z0-9]/.test(v)) score++;
+      segs.forEach((s, i) => {
+        s.className = 'strength-seg' + (i < score ? ' ' + levels[score] : '');
+      });
+      lbl.textContent = labels[score];
+      lbl.style.color = score >= 4 ? 'var(--success)' : score >= 2 ? 'var(--warning)' : 'var(--danger)';
+    });
+
+    // Match check
+    const confirmEl = document.getElementById('confirm');
+    confirmEl.addEventListener('input', () => {
+      confirmEl.className = 'form-control ' +
+        (confirmEl.value === pwEl.value ? 'valid' : 'invalid');
+    });
+
+    // Username validation
+    const unEl = document.getElementById('username');
+    const unHint = document.getElementById('usernameHint');
+    unEl.addEventListener('input', () => {
+      const ok = /^[a-zA-Z0-9_]{3,40}$/.test(unEl.value);
+      unEl.className = 'form-control ' + (unEl.value.length < 3 ? '' : ok ? 'valid' : 'invalid');
+    });
+
+    // Form submit guard
+    document.getElementById('regForm').addEventListener('submit', e => {
+      const pw = pwEl.value, cf = confirmEl.value;
+      if (pw !== cf) { e.preventDefault(); alert('Passwords do not match.'); }
+    });
+  </script>
+</body>
+</html>

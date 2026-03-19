@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Create Channel — Kildear{% endblock %}
+{% block content %}
+<div class="form-page-layout">
+  <div class="card form-page-card">
+    <h2 class="form-page-title">Create a Channel</h2>
+    <p class="form-page-sub">Broadcast content to your subscribers with no friction.</p>
+
+    <form action="{{ url_for('create_channel') }}" method="POST" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="field-group">
+        <label class="field-label">Channel Name *</label>
+        <input type="text" name="name" class="field-input" placeholder="e.g. Tech Daily" maxlength="80" required>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Description</label>
+        <textarea name="description" class="field-textarea" placeholder="What will you post about?" maxlength="500" rows="3"></textarea>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Channel Avatar</label>
+        <label class="file-upload-zone">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
+          </svg>
+          <span>Upload channel avatar</span>
+          <input type="file" name="avatar" accept="image/*" class="hidden" onchange="showFileName(this,'chAvName')">
+        </label>
+        <span class="file-name-preview" id="chAvName"></span>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Category</label>
+        <select name="category" class="field-input">
+          <option value="">— Select a category —</option>
+          <option value="tech">Technology</option>
+          <option value="news">News</option>
+          <option value="entertainment">Entertainment</option>
+          <option value="gaming">Gaming</option>
+          <option value="art">Art & Design</option>
+          <option value="music">Music</option>
+          <option value="sports">Sports</option>
+          <option value="education">Education</option>
+          <option value="lifestyle">Lifestyle</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+
+      <div class="form-actions">
+        <a href="{{ url_for('channels') }}" class="btn btn-ghost">Cancel</a>
+        <button type="submit" class="btn btn-primary">Create Channel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+.form-page-layout{max-width:560px;margin:0 auto}
+.form-page-card{padding:2rem}
+.form-page-title{font-size:1.4rem;font-weight:700;margin-bottom:.3rem}
+.form-page-sub{color:var(--text-muted);font-size:.875rem;margin-bottom:1.75rem}
+.field-group{margin-bottom:1.25rem}
+.field-label{display:block;font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.45rem}
+.field-input,.field-textarea{width:100%;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:.65rem;padding:.7rem 1rem;color:var(--text);font-size:.9rem;font-family:inherit;transition:.2s}
+.field-input:focus,.field-textarea:focus{outline:none;border-color:var(--primary);background:rgba(124,111,255,.06)}
+.field-textarea{min-height:80px;resize:vertical}
+.file-upload-zone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.4rem;border:2px dashed rgba(255,255,255,.12);border-radius:.75rem;padding:1.5rem;cursor:pointer;text-align:center;color:var(--text-muted);font-size:.85rem;transition:.2s}
+.file-upload-zone:hover{border-color:var(--primary);background:rgba(124,111,255,.05)}
+.file-name-preview{font-size:.78rem;color:var(--primary);margin-top:.25rem;display:block}
+.privacy-options{display:grid;grid-template-columns:1fr 1fr;gap:.65rem}
+.privacy-option{cursor:pointer}
+.privacy-option input{display:none}
+.privacy-option-body{display:flex;align-items:flex-start;gap:.6rem;border:2px solid rgba(255,255,255,.08);border-radius:.75rem;padding:.85rem;transition:.2s}
+.privacy-option input:checked+.privacy-option-body{border-color:var(--primary);background:rgba(124,111,255,.08)}
+.privacy-option-body:hover{border-color:rgba(255,255,255,.18)}
+.privacy-icon{font-size:1.25rem;flex-shrink:0}
+.privacy-option-body strong{font-size:.875rem}
+.privacy-option-body small{display:block;font-size:.75rem;color:var(--text-muted);margin-top:.1rem}
+.form-actions{display:flex;justify-content:flex-end;gap:.75rem;margin-top:1.75rem;padding-top:1.25rem;border-top:1px solid rgba(255,255,255,.07)}
+</style>
+<script>
+function showFileName(input, elId){
+  const name = input.files[0]?.name || '';
+  const el = document.getElementById(elId||'avatarName');
+  if(el) el.textContent = name;
+}
+</script>
+{% endblock %}

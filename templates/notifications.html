@@ -1,0 +1,436 @@
+{% extends "base.html" %}
+{% block title %}Notifications — Kildear{% endblock %}
+
+{% block head %}
+<style>
+  .notifications-page {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 24px 16px;
+  }
+
+  .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+
+  .page-title {
+    font-family: var(--font-head);
+    font-size: 24px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .page-title i {
+    color: var(--primary);
+    background: var(--primary-glow);
+    padding: 10px;
+    border-radius: 50%;
+  }
+
+  .mark-read-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 8px 16px;
+    border-radius: 99px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .mark-read-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--primary-glow);
+  }
+
+  .notifications-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .notification-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    background: var(--card);
+    transition: background 0.2s;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .notification-item:last-child {
+    border-bottom: none;
+  }
+
+  .notification-item:hover {
+    background: var(--hover-bg);
+  }
+
+  .notification-item.unread {
+    background: var(--primary-glow);
+    position: relative;
+  }
+
+  .notification-item.unread::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: var(--primary);
+  }
+
+  /* Иконки для разных типов уведомлений */
+  .notification-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+
+  .icon-like {
+    background: rgba(255, 107, 157, 0.15);
+    color: #ff6b9d;
+  }
+
+  .icon-follow {
+    background: rgba(108, 99, 255, 0.15);
+    color: var(--primary);
+  }
+
+  .icon-comment {
+    background: rgba(76, 175, 80, 0.15);
+    color: #4caf50;
+  }
+
+  .icon-mention {
+    background: rgba(255, 193, 7, 0.15);
+    color: #ffc107;
+  }
+
+  .icon-system {
+    background: rgba(158, 158, 158, 0.15);
+    color: #9e9e9e;
+  }
+
+  /* Контент уведомления */
+  .notification-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .notification-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+
+  .notification-username {
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .notification-time {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .notification-text {
+    color: var(--text);
+    margin-bottom: 4px;
+    line-height: 1.5;
+    word-wrap: break-word;
+  }
+
+  .notification-post-preview {
+    font-size: 13px;
+    color: var(--text-muted);
+    background: var(--hover-bg);
+    padding: 8px 12px;
+    border-radius: 8px;
+    margin-top: 8px;
+    border-left: 3px solid var(--primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Аватар пользователя */
+  .notification-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  /* Пустое состояние */
+  .empty-notifications {
+    text-align: center;
+    padding: 80px 20px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+
+  .empty-icon {
+    font-size: 64px;
+    color: var(--text-muted);
+    opacity: 0.3;
+    margin-bottom: 16px;
+  }
+
+  .empty-title {
+    font-family: var(--font-head);
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+
+  .empty-text {
+    color: var(--text-muted);
+    margin-bottom: 24px;
+  }
+
+  /* Анимации */
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .notification-item {
+    animation: slideIn 0.3s ease;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="notifications-page">
+  <div class="page-header">
+    <h1 class="page-title">
+      <i class="fa-solid fa-bell"></i>
+      Notifications
+    </h1>
+    {% if notifs %}
+    <button class="mark-read-btn" onclick="markAllAsRead()">
+      <i class="fa-regular fa-circle-check"></i> Mark all as read
+    </button>
+    {% endif %}
+  </div>
+
+  {% if notifs %}
+  <div class="notifications-list">
+    {% for notif in notifs %}
+    <a href="{{ notification_link(notif) }}"
+       class="notification-item {% if not notif.is_read %}unread{% endif %}"
+       data-notif-id="{{ notif.id }}"
+       onclick="markAsRead({{ notif.id }})">
+
+      <!-- Иконка в зависимости от типа уведомления -->
+      {% set icon_class = {
+        'like': 'icon-like fa-heart',
+        'follow': 'icon-follow fa-user-plus',
+        'comment': 'icon-comment fa-comment',
+        'mention': 'icon-mention fa-at',
+        'system': 'icon-system fa-bell'
+      } %}
+
+      {% set icon_info = icon_class[notif.type] or 'icon-system fa-bell' %}
+      {% set icon_parts = icon_info.split(' ') %}
+
+      {% if notif.from_user %}
+      <img src="{{ notif.from_user.avatar }}" class="notification-avatar" alt="@{{ notif.from_user.username }}">
+      {% else %}
+      <div class="notification-icon {{ icon_parts[0] }}">
+        <i class="fa-solid {{ icon_parts[1] }}"></i>
+      </div>
+      {% endif %}
+
+      <div class="notification-content">
+        <div class="notification-header">
+          <span class="notification-username">
+            {% if notif.from_user %}
+              {{ notif.from_user.display_name or notif.from_user.username }}
+            {% else %}
+              Kildear System
+            {% endif %}
+          </span>
+          <span class="notification-time" data-time="{{ notif.created_at.isoformat() }}">
+            {{ notif.created_at.strftime('%H:%M · %b %d') }}
+          </span>
+        </div>
+
+        <div class="notification-text">
+          {% if notif.type == 'like' %}
+            <i class="fa-solid fa-heart" style="color:#ff6b9d; margin-right:5px;"></i>
+            Liked your post
+          {% elif notif.type == 'follow' %}
+            <i class="fa-solid fa-user-plus" style="color:var(--primary); margin-right:5px;"></i>
+            Started following you
+          {% elif notif.type == 'comment' %}
+            <i class="fa-solid fa-comment" style="color:#4caf50; margin-right:5px;"></i>
+            Commented on your post
+          {% elif notif.type == 'mention' %}
+            <i class="fa-solid fa-at" style="color:#ffc107; margin-right:5px;"></i>
+            Mentioned you in a post
+          {% else %}
+            {{ notif.text or 'New notification' }}
+          {% endif %}
+        </div>
+
+        {% if notif.text and notif.type not in ['like', 'follow', 'comment', 'mention'] %}
+        <div class="notification-post-preview">
+          {{ notif.text }}
+        </div>
+        {% endif %}
+      </div>
+
+      {% if not notif.is_read %}
+      <span class="unread-dot"></span>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-notifications">
+    <div class="empty-icon">
+      <i class="fa-regular fa-bell-slash"></i>
+    </div>
+    <h2 class="empty-title">No notifications yet</h2>
+    <p class="empty-text">
+      When someone likes your post, follows you, or comments,<br>
+      you'll see it here.
+    </p>
+    <a href="{{ url_for('index') }}" class="btn btn-primary">
+      <i class="fa-solid fa-house"></i> Go to Feed
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+// Функция для получения ссылки на уведомление
+function notificationLink(notif) {
+  if (notif.type === 'follow') {
+    return `/u/${notif.from_user.username}`;
+  } else if (notif.type === 'like' || notif.type === 'comment') {
+    return `/post/${notif.post_id}`;
+  } else {
+    return 'javascript:void(0)';
+  }
+}
+
+// Добавляем функцию в глобальную область для использования в шаблоне
+window.notification_link = function(notif) {
+  if (notif.type === 'follow' && notif.from_user) {
+    return `/u/${notif.from_user.username}`;
+  } else if ((notif.type === 'like' || notif.type === 'comment') && notif.post_id) {
+    return `/post/${notif.post_id}`;
+  } else {
+    return '#';
+  }
+};
+
+// Отметить как прочитанное
+async function markAsRead(notifId) {
+  try {
+    const response = await fetch(`/api/notification/${notifId}/read`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCSRF(),
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (response.ok) {
+      const item = document.querySelector(`[data-notif-id="${notifId}"]`);
+      if (item) {
+        item.classList.remove('unread');
+      }
+
+      // Обновить счетчик
+      const badge = document.querySelector('.nav-item[href="/notifications"] .nav-badge');
+      if (badge) {
+        const count = parseInt(badge.textContent) - 1;
+        badge.textContent = count;
+        badge.style.display = count > 0 ? '' : 'none';
+      }
+    }
+  } catch (e) {
+    console.error('Error marking notification as read:', e);
+  }
+}
+
+// Отметить все как прочитанные
+async function markAllAsRead() {
+  try {
+    const response = await fetch('/api/notifications/read-all', {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCSRF(),
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (response.ok) {
+      document.querySelectorAll('.notification-item').forEach(item => {
+        item.classList.remove('unread');
+      });
+
+      // Обновить счетчик
+      const badge = document.querySelector('.nav-item[href="/notifications"] .nav-badge');
+      if (badge) {
+        badge.textContent = '0';
+        badge.style.display = 'none';
+      }
+
+      toast('All notifications marked as read', 'success');
+    }
+  } catch (e) {
+    console.error('Error marking all notifications as read:', e);
+    toast('Failed to mark notifications as read', 'error');
+  }
+}
+
+// Обновление относительного времени
+function updateRelativeTimes() {
+  document.querySelectorAll('[data-time]').forEach(el => {
+    const timeStr = el.getAttribute('data-time');
+    if (timeStr) {
+      el.textContent = timeAgo(timeStr);
+    }
+  });
+}
+
+// Обновляем время каждую минуту
+setInterval(updateRelativeTimes, 60000);
+</script>
+{% endblock %}

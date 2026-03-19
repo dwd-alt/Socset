@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block title %}{{ post.author.username }}'s post — Kildear{% endblock %}
+
+{% block content %}
+<div class="post-detail-layout">
+  <div class="post-detail-main">
+
+    <!-- POST CARD -->
+    <article class="card post-detail-card">
+      <div class="post-header">
+        <a href="{{ url_for('profile', username=post.author.username) }}" class="post-author-link">
+          {% if post.author.avatar %}
+            <img src="{{ url_for('static', filename='uploads/avatars/' + post.author.avatar) }}"
+                 class="avatar avatar-md" alt="{{ post.author.username }}">
+          {% else %}
+            <div class="avatar avatar-md avatar-placeholder">{{ post.author.username[0].upper() }}</div>
+          {% endif %}
+          <div>
+            <div class="post-author-name">{{ post.author.display_name or post.author.username }}</div>
+            <div class="post-author-sub">@{{ post.author.username }} ·
+              <time class="rel-time" data-ts="{{ post.created_at.isoformat() }}">{{ post.created_at.strftime('%B %d, %Y') }}</time>
+            </div>
+          </div>
+        </a>
+        {% if post.author_id == current_user.id %}
+        <button class="btn btn-ghost btn-sm danger-btn" onclick="confirmDeletePost({{ post.id }})">Delete</button>
+        {% endif %}
+      </div>
+
+      {% if post.content %}
+      <div class="post-content-full">{{ post.content }}</div>
+      {% endif %}
+
+      {% if post.image_file %}
+      <div class="post-detail-media">
+        <img src="{{ url_for('static', filename='uploads/images/' + post.image_file) }}"
+             alt="Post image" class="detail-image" onclick="openLightbox(this.src,'image')">
+      </div>
+      {% endif %}
+
+      {% if post.video_file %}
+      <div class="post-detail-media">
+        <video controls class="detail-video" preload="metadata" playsinline>
+          <source src="{{ url_for('static', filename='uploads/videos/' + post.video_file) }}">
+        </video>
+      </div>
+      {% endif %}
+
+      <div class="post-stats-bar">
+        <span>{{ post.likes.count() }} likes</span>
+        <span>{{ post.comments.count() }} comments</span>
+      </div>
+
+      <div class="post-actions-bar">
+        <button class="action-pill {% if current_user in post.likes %}liked{% endif %}"
+                onclick="likePost({{ post.id }}, this)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="{% if current_user in post.likes %}currentColor{% else %}none{% endif %}" stroke="currentColor" stroke-width="2">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+          </svg>
+          <span class="like-count">{{ post.likes.count() }}</span> Like
+        </button>
+        <button class="action-pill" onclick="sharePost({{ post.id }}, '{{ post.content[:60] if post.content else 'Check this out' | replace("'","") }}')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+          </svg>
+          Share
+        </button>
+      </div>
+    </article>
+
+    <!-- COMMENT FORM -->
+    <div class="card comment-form-card">
+      <div class="comment-form-header">
+        {% if current_user.avatar %}
+          <img src="{{ url_for('static', filename='uploads/avatars/' + current_user.avatar) }}"
+               class="avatar avatar-sm" alt="You">
+        {% else %}
+          <div class="avatar avatar-sm avatar-placeholder">{{ current_user.username[0].upper() }}</div>
+        {% endif %}
+        <span class="comment-you">Add a comment</span>
+      </div>
+      <form action="{{ url_for('add_comment', post_id=post.id) }}" method="POST" id="commentForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <textarea name="content" class="comment-textarea" placeholder="What do you think?"
+                  maxlength="1000" oninput="autoResizeCmt(this)" required></textarea>
+        <div class="comment-form-footer">
+          <span class="char-count-cmt" id="cmtCount">0/1000</span>
+          <button type="submit" class="btn btn-primary btn-sm">Comment</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- COMMENTS LIST -->
+    <div class="comments-section">
+      <h3 class="comments-heading">Comments ({{ post.comments.count() }})</h3>
+      {% if post.comments.all() %}
+        {% for comment in post.comments.order_by_desc %}
+        <div class="comment-card card" id="comment-{{ comment.id }}">
+          <div class="comment-header">
+            <a href="{{ url_for('profile', username=comment.author.username) }}" class="comment-author">
+              {% if comment.author.avatar %}
+                <img src="{{ url_for('static', filename='uploads/avatars/' + comment.author.avatar) }}"
+                     class="avatar avatar-xs" alt="{{ comment.author.username }}">
+              {% else %}
+                <div class="avatar avatar-xs avatar-placeholder">{{ comment.author.username[0].upper() }}</div>
+              {% endif %}
+              <div>
+                <span class="comment-author-name">{{ comment.author.display_name or comment.author.username }}</span>
+                <span class="comment-time"><time class="rel-time" data-ts="{{ comment.created_at.isoformat() }}">{{ comment.created_at.strftime('%b %d') }}</time></span>
+              </div>
+            </a>
+          </div>
+          <p class="comment-text">{{ comment.content }}</p>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="no-comments">
+          <p>No comments yet. Be the first!</p>
+        </div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- SIDEBAR: author info -->
+  <aside class="post-detail-sidebar">
+    <div class="card author-sidebar-card">
+      <a href="{{ url_for('profile', username=post.author.username) }}" class="author-sidebar-link">
+        {% if post.author.avatar %}
+          <img src="{{ url_for('static', filename='uploads/avatars/' + post.author.avatar) }}"
+               class="avatar avatar-lg" alt="{{ post.author.username }}">
+        {% else %}
+          <div class="avatar avatar-lg avatar-placeholder" style="font-size:1.5rem">{{ post.author.username[0].upper() }}</div>
+        {% endif %}
+        <h3 class="author-sidebar-name">{{ post.author.display_name or post.author.username }}</h3>
+        <p class="author-sidebar-sub">@{{ post.author.username }}</p>
+      </a>
+      {% if post.author.bio %}
+        <p class="author-sidebar-bio">{{ post.author.bio }}</p>
+      {% endif %}
+      <div class="author-sidebar-stats">
+        <div><strong>{{ post.author.posts.count() }}</strong><br><small>Posts</small></div>
+        <div><strong>{{ post.author.followers.count() }}</strong><br><small>Followers</small></div>
+        <div><strong>{{ post.author.following.count() }}</strong><br><small>Following</small></div>
+      </div>
+      {% if post.author_id != current_user.id %}
+        <button class="btn btn-primary btn-sm w-full" id="followSidebarBtn"
+                onclick="followUser({{ post.author.id }}, this)">
+          {% if current_user in post.author.followers %}Unfollow{% else %}Follow{% endif %}
+        </button>
+      {% endif %}
+    </div>
+  </aside>
+</div>
+
+<style>
+.post-detail-layout{display:grid;grid-template-columns:1fr 280px;gap:1.5rem;align-items:start}
+@media(max-width:860px){.post-detail-layout{grid-template-columns:1fr}.post-detail-sidebar{display:none}}
+.post-detail-card{padding:1.5rem;margin-bottom:1rem}
+.post-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1rem}
+.post-author-link{display:flex;align-items:center;gap:.65rem;text-decoration:none}
+.post-author-name{font-weight:700;font-size:1rem;color:var(--text)}
+.post-author-sub{font-size:.8rem;color:var(--text-muted)}
+.post-content-full{font-size:1.05rem;line-height:1.75;color:var(--text);white-space:pre-wrap;word-break:break-word;margin-bottom:1rem}
+.post-detail-media{margin:.75rem -1.5rem}
+.detail-image{width:100%;max-height:600px;object-fit:contain;cursor:zoom-in;background:#000}
+.detail-video{width:100%;max-height:600px;background:#000}
+.post-stats-bar{display:flex;gap:1.5rem;padding:.75rem 0;border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06);color:var(--text-muted);font-size:.85rem;margin:.75rem 0}
+.post-actions-bar{display:flex;gap:.75rem}
+.action-pill{display:flex;align-items:center;gap:.4rem;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:2rem;padding:.4rem 1rem;color:var(--text-muted);font-size:.875rem;cursor:pointer;transition:.2s}
+.action-pill:hover{background:rgba(255,255,255,.1);color:var(--text)}
+.action-pill.liked{color:var(--secondary);border-color:var(--secondary);background:rgba(255,107,157,.1)}
+.danger-btn{color:#ff6b6b;border-color:#ff6b6b26}
+/* Comment form */
+.comment-form-card{padding:1.25rem;margin-bottom:1rem}
+.comment-form-header{display:flex;align-items:center;gap:.65rem;margin-bottom:.75rem}
+.comment-you{font-weight:600;font-size:.9rem}
+.comment-textarea{width:100%;min-height:80px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:.65rem;padding:.75rem 1rem;color:var(--text);font-size:.9rem;resize:none;font-family:inherit}
+.comment-textarea:focus{outline:none;border-color:var(--primary)}
+.comment-form-footer{display:flex;justify-content:space-between;align-items:center;margin-top:.5rem}
+.char-count-cmt{font-size:.75rem;color:var(--text-muted)}
+/* Comments */
+.comments-section{display:flex;flex-direction:column;gap:.75rem}
+.comments-heading{font-size:1rem;font-weight:700;margin-bottom:.25rem}
+.comment-card{padding:1rem}
+.comment-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem}
+.comment-author{display:flex;align-items:center;gap:.5rem;text-decoration:none}
+.comment-author-name{font-weight:600;font-size:.875rem;color:var(--text)}
+.comment-time{font-size:.75rem;color:var(--text-muted);margin-left:.4rem}
+.comment-text{font-size:.9rem;color:var(--text);line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.no-comments{text-align:center;padding:2rem;color:var(--text-muted)}
+/* Author sidebar */
+.author-sidebar-card{padding:1.5rem;text-align:center}
+.author-sidebar-link{text-decoration:none;display:block;margin-bottom:.85rem}
+.author-sidebar-link .avatar{margin:0 auto .75rem}
+.author-sidebar-name{font-size:1.05rem;font-weight:700;color:var(--text)}
+.author-sidebar-sub{font-size:.8rem;color:var(--text-muted);margin-top:.15rem}
+.author-sidebar-bio{font-size:.85rem;color:var(--text-muted);line-height:1.5;margin:.75rem 0}
+.author-sidebar-stats{display:flex;justify-content:space-around;text-align:center;margin:1rem 0;font-size:.8rem;color:var(--text-muted)}
+.author-sidebar-stats strong{display:block;font-size:1.1rem;color:var(--text);font-weight:700}
+.w-full{width:100%}
+</style>
+<script>
+document.querySelector('.comment-textarea')?.addEventListener('input', function(){
+  document.getElementById('cmtCount').textContent = this.value.length+'/1000';
+  this.style.height='auto'; this.style.height=this.scrollHeight+'px';
+});
+function autoResizeCmt(el){el.style.height='auto';el.style.height=el.scrollHeight+'px'}
+</script>
+{% endblock %}

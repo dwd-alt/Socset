@@ -1,0 +1,1182 @@
+{% extends "base.html" %}
+{% block title %}{{ post.author.display_name or post.author.username }}'s post in {{ group.name }} — Kildear{% endblock %}
+
+{% block head %}
+<style>
+  .group-post-page {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 20px 16px 40px;
+  }
+
+  /* Навигация */
+  .post-navigation {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .back-to-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+
+  .back-to-group:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    transform: translateX(-3px);
+  }
+
+  .group-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--primary-glow);
+    border-radius: 99px;
+    color: var(--primary);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .group-badge img {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  /* Пост */
+  .post-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+
+  /* Шапка поста */
+  .post-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .post-author {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .post-author-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border);
+    transition: border-color 0.2s;
+  }
+
+  .post-author:hover .post-author-avatar {
+    border-color: var(--primary);
+  }
+
+  .post-author-info {
+    flex: 1;
+  }
+
+  .post-author-name {
+    font-weight: 600;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+
+  .verified-icon {
+    color: var(--primary);
+    font-size: 14px;
+  }
+
+  .post-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .post-time {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .post-time i {
+    font-size: 12px;
+  }
+
+  .group-indicator {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--primary);
+  }
+
+  .group-indicator i {
+    font-size: 12px;
+  }
+
+  .post-menu-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    padding: 8px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .post-menu-btn:hover {
+    background: var(--hover-bg);
+    color: var(--text);
+  }
+
+  /* Контент поста */
+  .post-content {
+    padding: 20px;
+  }
+
+  .post-text {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    margin-bottom: 20px;
+  }
+
+  /* Медиа */
+  .post-media {
+    margin-top: 16px;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: #000;
+    position: relative;
+  }
+
+  .post-media img {
+    width: 100%;
+    max-height: 600px;
+    object-fit: contain;
+    display: block;
+  }
+
+  .video-container {
+    position: relative;
+    width: 100%;
+    background: #000;
+  }
+
+  .video-container video {
+    width: 100%;
+    max-height: 600px;
+    display: block;
+  }
+
+  .video-controls-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 16px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.7));
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .video-container:hover .video-controls-overlay {
+    opacity: 1;
+  }
+
+  .video-play-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: none;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+
+  .video-play-btn:hover {
+    transform: scale(1.1);
+    background: var(--primary-dark);
+  }
+
+  /* Статистика */
+  .post-stats {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  .stat-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .stat-item i {
+    font-size: 14px;
+  }
+
+  /* Действия */
+  .post-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+  }
+
+  .action-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .action-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--primary-glow);
+  }
+
+  .action-btn.liked {
+    color: #ff6b9d;
+    border-color: #ff6b9d;
+    background: rgba(255, 107, 157, 0.08);
+  }
+
+  .action-btn i {
+    font-size: 16px;
+  }
+
+  .share-btn {
+    flex: 0 0 auto;
+    padding: 10px 16px;
+  }
+
+  /* Комментарии */
+  .comments-section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .comments-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .comments-title {
+    font-weight: 600;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .comments-title i {
+    color: var(--primary);
+  }
+
+  .comment-count {
+    background: var(--hover-bg);
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* Форма комментария */
+  .comment-form {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .comment-input-wrapper {
+    display: flex;
+    gap: 12px;
+  }
+
+  .current-user-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .comment-input-group {
+    flex: 1;
+    display: flex;
+    gap: 8px;
+  }
+
+  .comment-input {
+    flex: 1;
+    padding: 12px 16px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    color: var(--text);
+    font-size: 14px;
+    transition: all 0.2s;
+  }
+
+  .comment-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+  }
+
+  .comment-submit {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: none;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .comment-submit:hover:not(:disabled) {
+    transform: scale(1.05);
+    background: var(--primary-dark);
+  }
+
+  .comment-submit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Список комментариев */
+  .comments-list {
+    padding: 0 20px;
+  }
+
+  .comment-item {
+    display: flex;
+    gap: 12px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+    animation: fadeIn 0.3s ease;
+  }
+
+  .comment-item:last-child {
+    border-bottom: none;
+  }
+
+  .comment-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .comment-content {
+    flex: 1;
+  }
+
+  .comment-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .comment-username {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .comment-username:hover {
+    color: var(--primary);
+  }
+
+  .comment-time {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .comment-text {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text);
+    word-wrap: break-word;
+  }
+
+  .comment-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  .comment-action {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 99px;
+    transition: all 0.2s;
+  }
+
+  .comment-action:hover {
+    background: var(--hover-bg);
+    color: var(--text);
+  }
+
+  .comment-action.like {
+    color: #ff6b9d;
+  }
+
+  .comment-action.reply {
+    color: var(--primary);
+  }
+
+  /* Пустое состояние */
+  .no-comments {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+  }
+
+  .no-comments i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.3;
+  }
+
+  /* Меню поста */
+  .post-menu {
+    position: relative;
+  }
+
+  .dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px;
+    min-width: 180px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    z-index: 100;
+    display: none;
+  }
+
+  .dropdown-menu.show {
+    display: block;
+  }
+
+  .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 14px;
+    transition: all 0.2s;
+    cursor: pointer;
+    background: none;
+    border: none;
+    width: 100%;
+    text-align: left;
+  }
+
+  .dropdown-item:hover {
+    background: var(--hover-bg);
+  }
+
+  .dropdown-item.delete {
+    color: #ff4d4d;
+  }
+
+  .dropdown-item i {
+    width: 18px;
+  }
+
+  /* Анимации */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Модальное окно подтверждения */
+  .confirm-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s;
+  }
+
+  .confirm-modal.open {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .confirm-content {
+    background: var(--card);
+    border-radius: 20px;
+    padding: 30px;
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+  }
+
+  .confirm-icon {
+    font-size: 48px;
+    color: #ff4d4d;
+    margin-bottom: 16px;
+  }
+
+  .confirm-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .confirm-text {
+    color: var(--text-muted);
+    margin-bottom: 24px;
+  }
+
+  .confirm-buttons {
+    display: flex;
+    gap: 10px;
+  }
+
+  .confirm-btn {
+    flex: 1;
+    padding: 12px;
+    border-radius: 99px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .confirm-btn.cancel {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  .confirm-btn.delete {
+    background: #ff4d4d;
+    border: none;
+    color: white;
+  }
+
+  .confirm-btn.delete:hover {
+    background: #ff3333;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(255, 77, 77, 0.3);
+  }
+
+  /* Загрузка */
+  .loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="group-post-page">
+  <!-- Навигация -->
+  <div class="post-navigation">
+    <a href="{{ url_for('group_detail', slug=group.slug) }}" class="back-to-group">
+      <i class="fa-solid fa-arrow-left"></i>
+      Back to {{ group.name }}
+    </a>
+    <a href="{{ url_for('group_detail', slug=group.slug) }}" class="group-badge">
+      <img src="{{ group.avatar }}" alt="{{ group.name }}">
+      <span>{{ group.name }}</span>
+    </a>
+  </div>
+
+  <!-- Пост -->
+  <article class="post-card" data-post-id="{{ post.id }}">
+    <!-- Шапка поста -->
+    <div class="post-header">
+      <a href="{{ url_for('profile', username=post.author.username) }}" class="post-author">
+        <img src="{{ post.author.avatar }}" class="post-author-avatar" alt="{{ post.author.username }}">
+        <div class="post-author-info">
+          <div class="post-author-name">
+            {{ post.author.display_name or post.author.username }}
+            {% if post.author.is_verified %}
+            <i class="fa-solid fa-circle-check verified-icon"></i>
+            {% endif %}
+          </div>
+          <div class="post-meta">
+            <span class="post-time">
+              <i class="fa-regular fa-clock"></i>
+              <span data-time="{{ post.created_at.isoformat() }}">{{ post.created_at.strftime('%b %d, %Y at %H:%M') }}</span>
+            </span>
+            <span class="group-indicator">
+              <i class="fa-solid fa-users"></i>
+              {{ group.name }}
+            </span>
+          </div>
+        </div>
+      </a>
+
+      <!-- Меню поста (только для автора или владельца группы) -->
+      {% if post.author.id == current_user.id or group.owner_id == current_user.id %}
+      <div class="post-menu">
+        <button class="post-menu-btn" onclick="togglePostMenu()">
+          <i class="fa-solid fa-ellipsis"></i>
+        </button>
+        <div class="dropdown-menu" id="post-menu">
+          {% if post.author.id == current_user.id %}
+          <button class="dropdown-item" onclick="editPost({{ post.id }})">
+            <i class="fa-regular fa-pen-to-square"></i> Edit
+          </button>
+          {% endif %}
+          <button class="dropdown-item delete" onclick="confirmDelete({{ post.id }})">
+            <i class="fa-regular fa-trash-can"></i> Delete
+          </button>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Контент поста -->
+    <div class="post-content">
+      {% if post.content %}
+      <div class="post-text">
+        {{ post.content | nl2br | safe }}
+      </div>
+      {% endif %}
+
+      <!-- Медиа -->
+      {% if post.media_url %}
+      <div class="post-media">
+        {% if post.media_type == 'image' %}
+        <img src="{{ post.media_url }}" alt="Post image" loading="lazy">
+        {% elif post.media_type == 'video' %}
+        <div class="video-container" id="video-container-{{ post.id }}">
+          <video id="video-{{ post.id }}" src="{{ post.media_url }}" preload="metadata" playsinline></video>
+          <div class="video-controls-overlay">
+            <button class="video-play-btn" onclick="toggleVideo({{ post.id }})">
+              <i class="fa-solid fa-play" id="play-icon-{{ post.id }}"></i>
+            </button>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Статистика -->
+    <div class="post-stats">
+      <span class="stat-item">
+        <i class="fa-regular fa-heart"></i>
+        <span id="like-count-{{ post.id }}">{{ post.like_count }}</span> likes
+      </span>
+      <span class="stat-item">
+        <i class="fa-regular fa-comment"></i>
+        <span id="comment-count-{{ post.id }}">{{ post.comment_count }}</span> comments
+      </span>
+      <span class="stat-item">
+        <i class="fa-regular fa-eye"></i>
+        {{ post.views }} views
+      </span>
+    </div>
+
+    <!-- Действия -->
+    <div class="post-actions">
+      <button class="action-btn {% if post.is_liked_by(current_user) %}liked{% endif %}"
+              id="like-btn-{{ post.id }}"
+              onclick="likePost({{ post.id }})">
+        <i class="fa-{% if post.is_liked_by(current_user) %}solid{% else %}regular{% endif %} fa-heart"></i>
+        Like
+      </button>
+      <button class="action-btn" onclick="focusComment()">
+        <i class="fa-regular fa-comment"></i>
+        Comment
+      </button>
+      <button class="action-btn share-btn" onclick="sharePost({{ post.id }})">
+        <i class="fa-regular fa-share-from-square"></i>
+      </button>
+    </div>
+  </article>
+
+  <!-- Секция комментариев -->
+  <section class="comments-section">
+    <div class="comments-header">
+      <h3 class="comments-title">
+        <i class="fa-regular fa-comments"></i>
+        Comments
+      </h3>
+      <span class="comment-count">{{ post.comment_count }}</span>
+    </div>
+
+    <!-- Форма комментария -->
+    <div class="comment-form">
+      <div class="comment-input-wrapper">
+        <img src="{{ current_user.avatar }}" class="current-user-avatar" alt="{{ current_user.username }}">
+        <form id="comment-form-{{ post.id }}" class="comment-input-group" onsubmit="return submitComment(event, {{ post.id }})">
+          <input type="text"
+                 class="comment-input"
+                 id="comment-input-{{ post.id }}"
+                 placeholder="Write a comment..."
+                 autocomplete="off"
+                 required>
+          <button type="submit" class="comment-submit" id="comment-submit-{{ post.id }}">
+            <i class="fa-regular fa-paper-plane"></i>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Список комментариев -->
+    <div class="comments-list" id="comments-list-{{ post.id }}">
+      {% for comment in comments %}
+      <div class="comment-item" id="comment-{{ comment.id }}">
+        <a href="{{ url_for('profile', username=comment.author.username) }}">
+          <img src="{{ comment.author.avatar }}" class="comment-avatar" alt="{{ comment.author.username }}">
+        </a>
+        <div class="comment-content">
+          <div class="comment-header">
+            <a href="{{ url_for('profile', username=comment.author.username) }}" class="comment-username">
+              {{ comment.author.display_name or comment.author.username }}
+            </a>
+            <span class="comment-time" data-time="{{ comment.created_at.isoformat() }}">
+              {{ comment.created_at.strftime('%H:%M · %b %d') }}
+            </span>
+          </div>
+          <div class="comment-text">
+            {{ comment.content }}
+          </div>
+          <div class="comment-actions">
+            <button class="comment-action like" onclick="likeComment({{ comment.id }})">
+              <i class="fa-regular fa-heart"></i> Like
+            </button>
+            <button class="comment-action reply" onclick="replyToComment({{ comment.id }}, '{{ comment.author.username }}')">
+              <i class="fa-regular fa-reply"></i> Reply
+            </button>
+            {% if comment.user_id == current_user.id %}
+            <button class="comment-action" onclick="deleteComment({{ comment.id }})">
+              <i class="fa-regular fa-trash-can"></i> Delete
+            </button>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% else %}
+      <div class="no-comments">
+        <i class="fa-regular fa-comment-dots"></i>
+        <p>No comments yet. Be the first to comment!</p>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<!-- Модальное окно подтверждения удаления -->
+<div class="confirm-modal" id="confirm-modal">
+  <div class="confirm-content">
+    <div class="confirm-icon">
+      <i class="fa-regular fa-circle-exclamation"></i>
+    </div>
+    <h3 class="confirm-title">Delete post?</h3>
+    <p class="confirm-text">This action cannot be undone.</p>
+    <div class="confirm-buttons">
+      <button class="confirm-btn cancel" onclick="closeConfirmModal()">Cancel</button>
+      <button class="confirm-btn delete" id="confirm-delete-btn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentDeleteId = null;
+
+// Функции для видео
+function toggleVideo(postId) {
+  const video = document.getElementById(`video-${postId}`);
+  const icon = document.getElementById(`play-icon-${postId}`);
+
+  if (video.paused) {
+    video.play();
+    icon.className = 'fa-solid fa-pause';
+  } else {
+    video.pause();
+    icon.className = 'fa-solid fa-play';
+  }
+}
+
+// Функции для лайков
+async function likePost(postId) {
+  try {
+    const response = await fetch(`/post/${postId}/like`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': '{{ csrf_token() }}',
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+
+    const btn = document.getElementById(`like-btn-${postId}`);
+    const icon = btn.querySelector('i');
+    const count = document.getElementById(`like-count-${postId}`);
+
+    btn.classList.toggle('liked', data.liked);
+    icon.className = data.liked ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
+    count.textContent = data.count;
+
+  } catch (e) {
+    toast('Failed to like post', 'error');
+  }
+}
+
+// Функции для комментариев
+async function submitComment(event, postId) {
+  event.preventDefault();
+
+  const input = document.getElementById(`comment-input-${postId}`);
+  const submitBtn = document.getElementById(`comment-submit-${postId}`);
+  const content = input.value.trim();
+
+  if (!content) return false;
+
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<div class="loading-spinner"></div>';
+
+  try {
+    const formData = new FormData();
+    formData.append('content', content);
+
+    const response = await fetch(`/post/${postId}/comment`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': '{{ csrf_token() }}'
+      },
+      body: formData
+    });
+
+    const comment = await response.json();
+
+    if (comment.id) {
+      // Добавляем комментарий в список
+      const commentsList = document.getElementById(`comments-list-${postId}`);
+      const noComments = commentsList.querySelector('.no-comments');
+      if (noComments) noComments.remove();
+
+      const commentEl = createCommentElement(comment);
+      commentsList.insertBefore(commentEl, commentsList.firstChild);
+
+      // Очищаем input
+      input.value = '';
+
+      // Обновляем счетчик комментариев
+      const countEl = document.getElementById(`comment-count-${postId}`);
+      countEl.textContent = parseInt(countEl.textContent) + 1;
+
+      toast('Comment added!', 'success');
+    }
+  } catch (e) {
+    toast('Failed to add comment', 'error');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<i class="fa-regular fa-paper-plane"></i>';
+  }
+
+  return false;
+}
+
+function createCommentElement(comment) {
+  const div = document.createElement('div');
+  div.className = 'comment-item';
+  div.id = `comment-${comment.id}`;
+
+  div.innerHTML = `
+    <a href="/u/${comment.username}">
+      <img src="${comment.avatar}" class="comment-avatar" alt="${comment.username}">
+    </a>
+    <div class="comment-content">
+      <div class="comment-header">
+        <a href="/u/${comment.username}" class="comment-username">
+          ${comment.username}
+        </a>
+        <span class="comment-time">just now</span>
+      </div>
+      <div class="comment-text">
+        ${escapeHtml(comment.content)}
+      </div>
+      <div class="comment-actions">
+        <button class="comment-action like" onclick="likeComment(${comment.id})">
+          <i class="fa-regular fa-heart"></i> Like
+        </button>
+        <button class="comment-action reply" onclick="replyToComment(${comment.id}, '${comment.username}')">
+          <i class="fa-regular fa-reply"></i> Reply
+        </button>
+        <button class="comment-action" onclick="deleteComment(${comment.id})">
+          <i class="fa-regular fa-trash-can"></i> Delete
+        </button>
+      </div>
+    </div>
+  `;
+
+  return div;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function focusComment() {
+  const input = document.querySelector('.comment-input');
+  if (input) {
+    input.focus();
+    input.scrollIntoView({ behavior: 'smooth' });
+  }
+}
+
+function replyToComment(commentId, username) {
+  const input = document.querySelector('.comment-input');
+  if (input) {
+    input.value = `@${username} `;
+    input.focus();
+  }
+}
+
+async function likeComment(commentId) {
+  // Implement comment liking
+  toast('Comment like feature coming soon!', 'info');
+}
+
+async function deleteComment(commentId) {
+  if (!confirm('Delete this comment?')) return;
+
+  try {
+    const response = await fetch(`/comment/${commentId}/delete`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': '{{ csrf_token() }}'
+      }
+    });
+
+    if (response.ok) {
+      document.getElementById(`comment-${commentId}`).remove();
+      toast('Comment deleted', 'info');
+    }
+  } catch (e) {
+    toast('Failed to delete comment', 'error');
+  }
+}
+
+// Функции для меню поста
+function togglePostMenu() {
+  document.getElementById('post-menu').classList.toggle('show');
+}
+
+// Закрыть меню при клике вне его
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.post-menu')) {
+    document.getElementById('post-menu')?.classList.remove('show');
+  }
+});
+
+// Функции для удаления поста
+function confirmDelete(postId) {
+  currentDeleteId = postId;
+  document.getElementById('confirm-modal').classList.add('open');
+}
+
+function closeConfirmModal() {
+  document.getElementById('confirm-modal').classList.remove('open');
+  currentDeleteId = null;
+}
+
+async function deletePost() {
+  if (!currentDeleteId) return;
+
+  try {
+    const response = await fetch(`/post/${currentDeleteId}/delete`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': '{{ csrf_token() }}'
+      }
+    });
+
+    if (response.ok) {
+      toast('Post deleted', 'info');
+      setTimeout(() => {
+        window.location.href = '{{ url_for("group_detail", slug=group.slug) }}';
+      }, 1000);
+    }
+  } catch (e) {
+    toast('Failed to delete post', 'error');
+  } finally {
+    closeConfirmModal();
+  }
+}
+
+document.getElementById('confirm-delete-btn')?.addEventListener('click', deletePost);
+
+// Функция для редактирования поста
+function editPost(postId) {
+  toast('Edit feature coming soon!', 'info');
+}
+
+// Функция для шеринга
+function sharePost(postId) {
+  const url = window.location.href;
+
+  if (navigator.share) {
+    navigator.share({
+      title: 'Post on Kildear',
+      url: url
+    }).catch(() => {});
+  } else {
+    navigator.clipboard.writeText(url).then(() => {
+      toast('Link copied to clipboard!', 'success');
+    }).catch(() => {
+      toast('Could not copy link', 'error');
+    });
+  }
+}
+
+// Обновление относительного времени
+function updateRelativeTimes() {
+  document.querySelectorAll('[data-time]').forEach(el => {
+    const timeStr = el.getAttribute('data-time');
+    if (timeStr) {
+      el.textContent = timeAgo(timeStr);
+    }
+  });
+}
+
+// Функция timeAgo (добавьте, если еще нет)
+function timeAgo(dateStr) {
+  const now = new Date();
+  const then = new Date(dateStr);
+  const seconds = Math.floor((now - then) / 1000);
+
+  const intervals = {
+    year: 31536000,
+    month: 2592000,
+    week: 604800,
+    day: 86400,
+    hour: 3600,
+    minute: 60
+  };
+
+  if (seconds < 60) return 'just now';
+
+  for (let [unit, secondsInUnit] of Object.entries(intervals)) {
+    const interval = Math.floor(seconds / secondsInUnit);
+    if (interval >= 1) {
+      return interval + ' ' + unit + (interval === 1 ? '' : 's') + ' ago';
+    }
+  }
+
+  return then.toLocaleDateString();
+}
+
+// Обновляем время каждую минуту
+setInterval(updateRelativeTimes, 60000);
+
+// Инициализация при загрузке
+document.addEventListener('DOMContentLoaded', () => {
+  updateRelativeTimes();
+});
+</script>
+{% endblock %}

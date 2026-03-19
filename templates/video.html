@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+{% block title %}Videos — Kildear{% endblock %}
+
+{% block head %}
+<style>
+  .video-page { max-width: 780px; margin: 0 auto; padding: 0 16px 40px; }
+  .page-header { padding: 24px 0 20px; display: flex; align-items: center; justify-content: space-between; }
+  .page-title { font-family: var(--font-head); font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+  .page-title i { color: var(--secondary); }
+
+  /* Video cards */
+  .video-feed { display: flex; flex-direction: column; gap: 20px; }
+  .video-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .video-card:hover { border-color: var(--border-hover); transform: translateY(-2px); }
+
+  .video-author {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 16px 10px;
+  }
+  .video-author .name {
+    font-weight: 600; font-size: 14px;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .video-author .handle { font-size: 12px; color: var(--text-muted); }
+  .video-author .follow-mini {
+    margin-left: auto;
+    background: none; border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 5px 12px; border-radius: 99px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .video-author .follow-mini:hover { border-color: var(--primary); color: var(--primary); }
+
+  /* Player */
+  .video-wrap {
+    position: relative;
+    background: #000;
+    cursor: pointer;
+  }
+  .video-wrap video {
+    width: 100%;
+    max-height: 480px;
+    display: block;
+    object-fit: contain;
+  }
+  .video-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity 0.2s;
+  }
+  .play-btn-big {
+    width: 64px; height: 64px;
+    background: rgba(124,111,255,0.9);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; color: #fff;
+    transform: scale(0.9);
+    transition: all 0.2s;
+    box-shadow: 0 8px 32px rgba(124,111,255,0.5);
+  }
+  .video-wrap:hover .play-btn-big { transform: scale(1); }
+  .video-overlay.playing { opacity: 0; }
+  .video-overlay.playing:hover { opacity: 1; }
+
+  /* Controls */
+  .video-controls {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px;
+    background: rgba(0,0,0,0.3);
+    position: absolute; bottom: 0; left: 0; right: 0;
+    opacity: 0; transition: opacity 0.2s;
+  }
+  .video-wrap:hover .video-controls { opacity: 1; }
+  .progress-bar {
+    flex: 1; height: 3px; background: rgba(255,255,255,0.2);
+    border-radius: 99px; cursor: pointer; position: relative;
+  }
+  .progress-fill { height: 100%; background: var(--primary); border-radius: 99px; width: 0%; }
+  .progress-bar:hover { height: 5px; }
+  .ctrl-btn {
+    background: none; border: none; color: rgba(255,255,255,0.85);
+    font-size: 14px; cursor: pointer; padding: 0 2px;
+    transition: color 0.2s;
+  }
+  .ctrl-btn:hover { color: #fff; }
+  .time-display { font-size: 11px; color: rgba(255,255,255,0.7); white-space: nowrap; }
+
+  /* Caption */
+  .video-caption {
+    padding: 12px 16px 8px;
+    font-size: 14px; line-height: 1.5;
+  }
+  .video-caption .caption-text { margin-bottom: 6px; }
+  .read-more { color: var(--primary); cursor: pointer; font-size: 13px; }
+
+  /* Actions */
+  .video-actions {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 16px 14px;
+  }
+  .action-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 99px;
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text-muted); font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .action-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-glow); }
+  .action-btn.liked { color: var(--secondary); border-color: var(--secondary); background: rgba(255,107,157,0.08); }
+  .action-btn i { font-size: 15px; }
+  .share-btn { margin-left: auto; }
+
+  /* Empty */
+  .empty-videos {
+    text-align: center; padding: 80px 20px;
+    color: var(--text-muted);
+  }
+  .empty-videos .icon { font-size: 56px; margin-bottom: 16px; opacity: 0.25; }
+  .empty-videos h2 { font-family: var(--font-head); font-size: 20px; color: var(--text); margin-bottom: 8px; }
+
+  /* Pagination */
+  .pagination { display: flex; justify-content: center; gap: 10px; padding: 20px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="video-page">
+  <div class="page-header">
+    <h1 class="page-title">
+      <i class="fa-solid fa-clapperboard"></i> Videos
+    </h1>
+    <a href="{{ url_for('index') }}" class="btn btn-outline btn-sm">
+      <i class="fa-solid fa-plus"></i> Upload
+    </a>
+  </div>
+
+  {% if videos.items %}
+  <div class="video-feed">
+    {% for post in videos.items %}
+    <article class="video-card" data-post-id="{{ post.id }}">
+      <!-- Author -->
+      <div class="video-author">
+        <a href="{{ url_for('profile', username=post.author.username) }}">
+          <img src="{{ post.author.avatar }}" class="avatar avatar-sm" alt="{{ post.author.username }}"/>
+        </a>
+        <div>
+          <a href="{{ url_for('profile', username=post.author.username) }}" class="name">
+            {{ post.author.display_name or post.author.username }}
+            {% if post.author.is_verified %}<i class="fa-solid fa-circle-check verified-icon"></i>{% endif %}
+          </a>
+          <div class="handle">@{{ post.author.username }} · {{ post.created_at.strftime('%b %d') }}</div>
+        </div>
+        {% if post.author.id != current_user.id %}
+        <button class="follow-mini" onclick="quickFollow('{{ post.author.username }}', this)">
+          + Follow
+        </button>
+        {% endif %}
+      </div>
+
+      <!-- Video player -->
+      <div class="video-wrap" id="vwrap-{{ post.id }}">
+        <video id="vid-{{ post.id }}"
+               src="{{ post.media_url }}"
+               preload="metadata"
+               loop
+               onclick="togglePlay({{ post.id }})"
+               onplay="onVidPlay({{ post.id }})"
+               onpause="onVidPause({{ post.id }})"
+               ontimeupdate="onTimeUpdate({{ post.id }})"
+               playsinline></video>
+
+        <!-- Overlay play button -->
+        <div class="video-overlay" id="overlay-{{ post.id }}" onclick="togglePlay({{ post.id }})">
+          <div class="play-btn-big" id="playIcon-{{ post.id }}">
+            <i class="fa-solid fa-play" style="margin-left:3px;"></i>
+          </div>
+        </div>
+
+        <!-- Controls bar -->
+        <div class="video-controls">
+          <button class="ctrl-btn" onclick="togglePlay({{ post.id }})" id="ctrlPlay-{{ post.id }}">
+            <i class="fa-solid fa-play"></i>
+          </button>
+          <div class="progress-bar" id="progress-{{ post.id }}"
+               onclick="seek({{ post.id }}, event)">
+            <div class="progress-fill" id="fill-{{ post.id }}"></div>
+          </div>
+          <span class="time-display" id="time-{{ post.id }}">0:00</span>
+          <button class="ctrl-btn" onclick="toggleMute({{ post.id }})">
+            <i class="fa-solid fa-volume-high" id="muteIcon-{{ post.id }}"></i>
+          </button>
+          <button class="ctrl-btn" onclick="toggleFullscreen({{ post.id }})">
+            <i class="fa-solid fa-expand"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Caption -->
+      {% if post.content %}
+      <div class="video-caption">
+        <div class="caption-text" id="cap-{{ post.id }}">
+          {% if post.content|length > 120 %}
+            <span class="cap-short">{{ post.content[:120] }}<span class="read-more" onclick="expandCap({{ post.id }})">… more</span></span>
+            <span class="cap-full" style="display:none">{{ post.content }}</span>
+          {% else %}
+            {{ post.content }}
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Actions -->
+      <div class="video-actions">
+        <button class="action-btn {% if post.is_liked_by(current_user) %}liked{% endif %}"
+                id="likeBtn-{{ post.id }}"
+                onclick="likePost({{ post.id }})">
+          <i class="fa-{% if post.is_liked_by(current_user) %}solid{% else %}regular{% endif %} fa-heart"></i>
+          <span id="likeCount-{{ post.id }}">{{ post.like_count }}</span>
+        </button>
+        <a href="{{ url_for('view_post', post_id=post.id) }}" class="action-btn">
+          <i class="fa-regular fa-comment"></i>
+          <span>{{ post.comment_count }}</span>
+        </a>
+        <button class="action-btn">
+          <i class="fa-solid fa-eye"></i>
+          <span>{{ post.views }}</span>
+        </button>
+        <button class="action-btn share-btn" onclick="sharePost({{ post.id }})">
+          <i class="fa-solid fa-share-nodes"></i>
+        </button>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+
+  <!-- Pagination -->
+  <div class="pagination">
+    {% if videos.has_prev %}
+    <a href="?page={{ videos.prev_num }}" class="btn btn-outline btn-sm">← Previous</a>
+    {% endif %}
+    <span style="color:var(--text-muted);font-size:13px;display:flex;align-items:center;">
+      Page {{ videos.page }} of {{ videos.pages }}
+    </span>
+    {% if videos.has_next %}
+    <a href="?page={{ videos.next_num }}" class="btn btn-outline btn-sm">Next →</a>
+    {% endif %}
+  </div>
+
+  {% else %}
+  <div class="empty-videos">
+    <div class="icon">🎬</div>
+    <h2>No videos (пока не добавили)</h2>
+    <p>Be the first to share a video with the Kildear community!</p>
+    <a href="{{ url_for('index') }}" class="btn btn-primary" style="margin-top:16px;border-radius:99px;">
+      <i class="fa-solid fa-upload"></i> Upload Video
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function togglePlay(id) {
+  const v = document.getElementById('vid-'+id);
+  v.paused ? v.play() : v.pause();
+}
+function onVidPlay(id) {
+  document.getElementById('overlay-'+id).classList.add('playing');
+  document.getElementById('ctrlPlay-'+id).innerHTML = '<i class="fa-solid fa-pause"></i>';
+  document.getElementById('playIcon-'+id).innerHTML = '<i class="fa-solid fa-pause"></i>';
+}
+function onVidPause(id) {
+  document.getElementById('overlay-'+id).classList.remove('playing');
+  document.getElementById('ctrlPlay-'+id).innerHTML = '<i class="fa-solid fa-play"></i>';
+  document.getElementById('playIcon-'+id).innerHTML = '<i class="fa-solid fa-play" style="margin-left:3px"></i>';
+}
+function onTimeUpdate(id) {
+  const v = document.getElementById('vid-'+id);
+  if (!v.duration) return;
+  const pct = (v.currentTime / v.duration) * 100;
+  document.getElementById('fill-'+id).style.width = pct + '%';
+  const s = Math.floor(v.currentTime);
+  document.getElementById('time-'+id).textContent =
+    Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+}
+function seek(id, e) {
+  const v = document.getElementById('vid-'+id);
+  const bar = document.getElementById('progress-'+id);
+  const pct = e.offsetX / bar.offsetWidth;
+  v.currentTime = pct * v.duration;
+}
+function toggleMute(id) {
+  const v = document.getElementById('vid-'+id);
+  v.muted = !v.muted;
+  document.getElementById('muteIcon-'+id).className =
+    v.muted ? 'fa-solid fa-volume-xmark' : 'fa-solid fa-volume-high';
+}
+function toggleFullscreen(id) {
+  const w = document.getElementById('vwrap-'+id);
+  if (!document.fullscreenElement) w.requestFullscreen();
+  else document.exitFullscreen();
+}
+function expandCap(id) {
+  const el = document.getElementById('cap-'+id);
+  el.querySelector('.cap-short').style.display = 'none';
+  el.querySelector('.cap-full').style.display = 'inline';
+}
+async function likePost(id) {
+  const res = await fetch(`/post/${id}/like`, {
+    method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token() }}' },
+    credentials: 'same-origin',
+  });
+  const data = await res.json();
+  const btn = document.getElementById('likeBtn-'+id);
+  const icon = btn.querySelector('i');
+  btn.classList.toggle('liked', data.liked);
+  icon.className = data.liked ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
+  document.getElementById('likeCount-'+id).textContent = data.count;
+}
+function quickFollow(username, btn) {
+  fetch(`/follow/${username}`, {
+    method:'POST', headers:{'X-CSRFToken':'{{ csrf_token() }}'},
+    credentials:'same-origin',
+  }).then(r=>r.json()).then(d=>{
+    btn.textContent = d.following ? '✓ Following' : '+ Follow';
+  });
+}
+function sharePost(id) {
+  const url = window.location.origin + '/post/' + id;
+  if (navigator.share) navigator.share({ url });
+  else { navigator.clipboard.writeText(url); alert('Link copied!'); }
+}
+
+// Autoplay on scroll (Intersection Observer)
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    const vwrap = entry.target;
+    const vid = vwrap.querySelector('video');
+    if (!vid) return;
+    if (entry.isIntersecting) { vid.play().catch(()=>{}); }
+    else { vid.pause(); }
+  });
+}, { threshold: 0.6 });
+
+document.querySelectorAll('.video-wrap').forEach(el => observer.observe(el));
+</script>
+{% endblock %}

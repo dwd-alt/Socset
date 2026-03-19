@@ -1,0 +1,413 @@
+{% extends "base.html" %}
+{% block title %}{{ user.display_name or user.username }} (@{{ user.username }}) — Kildear{% endblock %}
+
+{% block head %}
+<style>
+  /* Apply user's accent color */
+  :root {
+    --user-accent: {{ user.accent_color or '#7c6fff' }};
+    --user-glow: {{ user.accent_color or '#7c6fff' }}33;
+  }
+
+  .profile-page { max-width: 920px; margin: 0 auto; padding: 0 0 40px; }
+
+  /* Cover */
+  .cover-wrap {
+    position: relative;
+    height: 220px;
+    background:
+      {% if user.cover_photo %}
+        url('{{ user.cover_photo }}') center/cover no-repeat;
+      {% else %}
+        linear-gradient(135deg, var(--user-accent), var(--secondary) 50%, var(--accent));
+      {% endif %}
+    overflow: hidden;
+  }
+  .cover-wrap::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(to bottom, transparent 40%, rgba(7,7,15,0.85));
+  }
+  @media (max-width: 600px) { .cover-wrap { height: 160px; } }
+
+  /* Profile header */
+  .profile-header {
+    padding: 0 24px 20px;
+    margin-top: -52px;
+    position: relative;
+    z-index: 2;
+  }
+  .avatar-wrap {
+    position: relative;
+    display: inline-block;
+    margin-bottom: 14px;
+  }
+  .profile-avatar {
+    width: 100px; height: 100px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 4px solid var(--bg);
+    box-shadow: 0 0 0 2px var(--user-accent), 0 8px 32px rgba(0,0,0,0.5);
+  }
+  .verified-badge {
+    position: absolute;
+    bottom: 4px; right: 4px;
+    width: 26px; height: 26px;
+    background: var(--accent);
+    border-radius: 50%;
+    border: 3px solid var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: #fff;
+  }
+  .profile-meta { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .profile-info { flex: 1; min-width: 0; }
+  .display-name {
+    font-family: var(--font-head);
+    font-size: 22px; font-weight: 800;
+    display: flex; align-items: center; gap: 8px;
+    line-height: 1.2;
+  }
+  .username-handle { font-size: 14px; color: var(--text-muted); margin-top: 2px; }
+  .profile-bio { font-size: 14px; color: var(--text); margin: 10px 0 8px; max-width: 480px; line-height: 1.6; }
+  .profile-detail-row {
+    display: flex; flex-wrap: wrap; gap: 16px;
+    font-size: 13px; color: var(--text-muted);
+  }
+  .profile-detail-row span { display: flex; align-items: center; gap: 6px; }
+  .profile-detail-row a { color: var(--user-accent); }
+  .profile-detail-row a:hover { text-decoration: underline; }
+
+  /* Stats */
+  .profile-stats {
+    display: flex; gap: 24px;
+    margin: 14px 0 0;
+    flex-wrap: wrap;
+  }
+  .stat-item { text-align: center; cursor: pointer; }
+  .stat-value {
+    font-family: var(--font-head);
+    font-size: 18px; font-weight: 800;
+    color: var(--text);
+    display: block;
+    line-height: 1;
+  }
+  .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+
+  /* Actions */
+  .profile-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-follow {
+    padding: 9px 22px;
+    border-radius: 99px;
+    font-weight: 700; font-size: 13px;
+    cursor: pointer; transition: all 0.2s;
+    border: none;
+  }
+  .btn-follow.follow-state {
+    background: linear-gradient(135deg, var(--user-accent), color-mix(in srgb, var(--user-accent) 60%, white));
+    color: #fff;
+    box-shadow: 0 4px 16px var(--user-glow);
+  }
+  .btn-follow.follow-state:hover { transform: translateY(-1px); }
+  .btn-follow.unfollow-state {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  .btn-follow.unfollow-state:hover { border-color: var(--danger); color: var(--danger); }
+
+  /* Tabs */
+  .profile-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    margin: 20px 24px 0;
+    gap: 0;
+    overflow-x: auto;
+  }
+  .tab-btn {
+    padding: 12px 20px;
+    background: none; border: none;
+    color: var(--text-muted);
+    font-size: 13.5px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    display: flex; align-items: center; gap: 6px;
+    text-decoration: none;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active {
+    color: var(--user-accent);
+    border-bottom-color: var(--user-accent);
+  }
+
+  /* Posts grid */
+  .posts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 2px;
+    padding: 20px 24px;
+  }
+  .grid-item {
+    aspect-ratio: 1;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    background: var(--surface);
+  }
+  .grid-item img, .grid-item video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s;
+  }
+  .grid-item:hover img, .grid-item:hover video { transform: scale(1.04); }
+  .grid-item-overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0);
+    transition: background 0.2s;
+    display: flex; align-items: center; justify-content: center;
+    gap: 20px;
+    color: #fff; font-size: 15px;
+  }
+  .grid-item:hover .grid-item-overlay { background: rgba(0,0,0,0.5); }
+  .grid-item-overlay .stat { display: flex; align-items: center; gap: 6px; font-weight: 600; opacity: 0; transition: opacity 0.2s; }
+  .grid-item:hover .stat { opacity: 1; }
+  .video-badge {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(0,0,0,0.6);
+    color: #fff; font-size: 11px;
+    padding: 3px 7px; border-radius: 99px;
+    display: flex; align-items: center; gap: 4px;
+  }
+
+  /* Text posts list */
+  .posts-list { padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; }
+  .post-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    transition: border-color 0.2s;
+  }
+  .post-card:hover { border-color: var(--border-hover); }
+  .post-content { font-size: 14px; line-height: 1.6; margin-bottom: 10px; }
+  .post-media { border-radius: 10px; overflow: hidden; margin-bottom: 10px; cursor: pointer; }
+  .post-media img { width: 100%; max-height: 380px; object-fit: cover; }
+  .post-meta { display: flex; align-items: center; gap: 16px; font-size: 12.5px; color: var(--text-muted); }
+  .post-stat { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .post-stat:hover { color: var(--user-accent); }
+
+  /* Empty state */
+  .empty-state {
+    padding: 60px 24px;
+    text-align: center;
+    color: var(--text-muted);
+  }
+  .empty-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.3; }
+  .empty-state h3 { font-family: var(--font-head); font-size: 18px; margin-bottom: 6px; color: var(--text); }
+
+  @media (max-width: 600px) {
+    .profile-header { padding: 0 16px 20px; }
+    .profile-tabs { margin: 16px 0 0; }
+    .posts-grid { padding: 12px 0; }
+    .posts-list { padding: 12px 16px; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="profile-page">
+
+  <!-- Cover photo -->
+  <div class="cover-wrap">
+    {% if is_own %}
+    <label for="coverUpload" style="position:absolute;bottom:12px;right:12px;z-index:3;cursor:pointer;background:rgba(0,0,0,0.55);border:1px solid rgba(255,255,255,0.2);padding:7px 14px;border-radius:99px;font-size:12px;color:#fff;backdrop-filter:blur(8px);">
+      <i class="fa-solid fa-camera"></i> Change cover
+    </label>
+    {% endif %}
+  </div>
+
+  <!-- Profile header -->
+  <div class="profile-header">
+    <div class="avatar-wrap">
+      <img src="{{ user.avatar }}" class="profile-avatar" alt="{{ user.username }}"/>
+      {% if user.is_verified %}<div class="verified-badge"><i class="fa-solid fa-check"></i></div>{% endif %}
+    </div>
+
+    <div class="profile-meta">
+      <div class="profile-info">
+        <div class="display-name">
+          {{ user.display_name or user.username }}
+          {% if user.is_verified %}<i class="fa-solid fa-circle-check verified-icon" style="font-size:16px;color:var(--accent)"></i>{% endif %}
+        </div>
+        <div class="username-handle">@{{ user.username }}</div>
+
+        {% if user.bio %}
+        <p class="profile-bio">{{ user.bio }}</p>
+        {% endif %}
+
+        <div class="profile-detail-row">
+          {% if user.location %}<span><i class="fa-solid fa-location-dot"></i> {{ user.location }}</span>{% endif %}
+          {% if user.website %}<span><i class="fa-solid fa-link"></i> <a href="{{ user.website }}" target="_blank" rel="noopener">{{ user.website|replace('https://','') }}</a></span>{% endif %}
+          <span><i class="fa-regular fa-calendar"></i> Joined {{ user.created_at.strftime('%b %Y') }}</span>
+        </div>
+
+        <div class="profile-stats">
+          <div class="stat-item">
+            <span class="stat-value">{{ user.post_count }}</span>
+            <span class="stat-label">Posts</span>
+          </div>
+          <div class="stat-item" onclick="showFollowers()">
+            <span class="stat-value">{{ user.follower_count }}</span>
+            <span class="stat-label">Followers</span>
+          </div>
+          <div class="stat-item" onclick="showFollowing()">
+            <span class="stat-value">{{ user.following_count }}</span>
+            <span class="stat-label">Following</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="profile-actions">
+        {% if is_own %}
+          <a href="{{ url_for('edit_profile') }}" class="btn btn-outline">
+            <i class="fa-solid fa-pen"></i> Edit Profile
+          </a>
+        {% else %}
+          <button class="btn-follow {% if is_following %}unfollow-state{% else %}follow-state{% endif %}"
+                  id="followBtn"
+                  onclick="toggleFollow('{{ user.username }}')">
+            {% if is_following %}
+              <i class="fa-solid fa-user-minus"></i> Unfollow
+            {% else %}
+              <i class="fa-solid fa-user-plus"></i> Follow
+            {% endif %}
+          </button>
+          <a href="{{ url_for('chat', username=user.username) }}" class="btn btn-outline btn-sm">
+            <i class="fa-solid fa-message"></i> Message
+          </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="profile-tabs">
+    <a href="?tab=posts"   class="tab-btn {% if tab=='posts'  %}active{% endif %}"><i class="fa-solid fa-grid-2"></i> Posts</a>
+    <a href="?tab=videos"  class="tab-btn {% if tab=='videos' %}active{% endif %}"><i class="fa-solid fa-film"></i> Videos</a>
+    <a href="?tab=about"   class="tab-btn {% if tab=='about'  %}active{% endif %}"><i class="fa-solid fa-circle-info"></i> About</a>
+  </div>
+
+  <!-- Tab content: Posts grid -->
+  {% if tab == 'posts' or not tab %}
+    {% if posts.items %}
+    <div class="posts-grid">
+      {% for post in posts.items %}
+      <a href="{{ url_for('view_post', post_id=post.id) }}" class="grid-item">
+        {% if post.media_type == 'image' %}
+          <img src="{{ post.media_url }}" alt="Post" loading="lazy"/>
+        {% elif post.media_type == 'video' %}
+          <video src="{{ post.media_url }}" muted preload="none"></video>
+          <div class="video-badge"><i class="fa-solid fa-play"></i></div>
+        {% else %}
+          <div style="width:100%;height:100%;background:var(--surface2);display:flex;align-items:center;justify-content:center;padding:16px;font-size:13px;color:var(--text-muted);text-align:center;line-height:1.5;">
+            {{ post.content[:80] }}{% if post.content|length > 80 %}…{% endif %}
+          </div>
+        {% endif %}
+        <div class="grid-item-overlay">
+          <span class="stat"><i class="fa-solid fa-heart"></i> {{ post.like_count }}</span>
+          <span class="stat"><i class="fa-solid fa-comment"></i> {{ post.comment_count }}</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    <!-- Pagination -->
+    {% if posts.has_next or posts.has_prev %}
+    <div style="display:flex;justify-content:center;gap:10px;padding:16px;">
+      {% if posts.has_prev %}<a href="?tab=posts&page={{ posts.prev_num }}" class="btn btn-outline btn-sm">← Previous</a>{% endif %}
+      {% if posts.has_next %}<a href="?tab=posts&page={{ posts.next_num }}" class="btn btn-outline btn-sm">Next →</a>{% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">📷</div>
+      <h3>No posts yet</h3>
+      <p>{% if is_own %}Share your first post!{% else %}@{{ user.username }} hasn't posted yet.{% endif %}</p>
+    </div>
+    {% endif %}
+
+  <!-- Tab content: Videos -->
+  {% elif tab == 'videos' %}
+    {% if videos %}
+    <div class="posts-grid">
+      {% for post in videos %}
+      <a href="{{ url_for('view_post', post_id=post.id) }}" class="grid-item">
+        <video src="{{ post.media_url }}" muted preload="none"></video>
+        <div class="video-badge"><i class="fa-solid fa-play"></i></div>
+        <div class="grid-item-overlay">
+          <span class="stat"><i class="fa-solid fa-eye"></i> {{ post.views }}</span>
+          <span class="stat"><i class="fa-solid fa-heart"></i> {{ post.like_count }}</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">🎬</div>
+      <h3>No videos yet</h3>
+    </div>
+    {% endif %}
+
+  <!-- Tab content: About -->
+  {% elif tab == 'about' %}
+  <div style="padding:24px;max-width:560px;">
+    <div class="card" style="display:flex;flex-direction:column;gap:14px;">
+      <div style="font-family:var(--font-head);font-size:15px;font-weight:700;margin-bottom:4px;">About @{{ user.username }}</div>
+      {% if user.bio %}
+      <div>
+        <div class="form-label">Bio</div>
+        <p style="font-size:14px;line-height:1.7;color:var(--text)">{{ user.bio }}</p>
+      </div>
+      {% endif %}
+      {% if user.location %}
+      <div>
+        <div class="form-label">Location</div>
+        <p style="font-size:14px;color:var(--text)"><i class="fa-solid fa-location-dot" style="color:var(--user-accent);margin-right:6px"></i>{{ user.location }}</p>
+      </div>
+      {% endif %}
+      {% if user.website %}
+      <div>
+        <div class="form-label">Website</div>
+        <a href="{{ user.website }}" target="_blank" rel="noopener" style="font-size:14px;color:var(--user-accent)">{{ user.website }}</a>
+      </div>
+      {% endif %}
+      <div>
+        <div class="form-label">Member Since</div>
+        <p style="font-size:14px;color:var(--text)">{{ user.created_at.strftime('%B %d, %Y') }}</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+function toggleFollow(username) {
+  const btn = document.getElementById('followBtn');
+  fetch(`/follow/${username}`, {
+    method: 'POST',
+    headers: { 'X-CSRFToken': '{{ csrf_token() }}', 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.following) {
+      btn.className = 'btn-follow unfollow-state';
+      btn.innerHTML = '<i class="fa-solid fa-user-minus"></i> Unfollow';
+    } else {
+      btn.className = 'btn-follow follow-state';
+      btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Follow';
+    }
+  });
+}
+</script>
+{% endblock %}
