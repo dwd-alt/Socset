@@ -237,7 +237,6 @@ class User(UserMixin, db.Model):
                                 foreign_keys="Message.sender_id")
     recv_msgs = db.relationship("Message", backref="receiver", lazy="dynamic",
                                 foreign_keys="Message.receiver_id")
-    voice_msgs = db.relationship("VoiceMessage", backref="sender", lazy="dynamic")
     notifications = db.relationship("Notification", backref="recipient", lazy="dynamic",
                                     foreign_keys="Notification.user_id")
     comments = db.relationship("Comment", backref="author", lazy="dynamic")
