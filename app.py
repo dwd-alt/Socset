@@ -1,6 +1,6 @@
 """
-Kildear Social Network — app.py
-Optimized for Render.com with Python 3.11 and PostgreSQL support
+Kildear Social Network — Complete Version
+Full-featured backend with admin panel, voice messages, calls, and enhanced security
 """
 
 import os
@@ -12,6 +12,7 @@ import logging
 import platform
 from datetime import datetime, timedelta
 from collections import defaultdict
+from functools import wraps
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, jsonify, abort, session, send_from_directory)
@@ -24,6 +25,7 @@ from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import or_, func, and_
+import bcrypt
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -39,37 +41,30 @@ is_production = os.environ.get('RENDER') == 'true' or os.environ.get('FLASK_ENV'
 is_render = os.environ.get('RENDER') == 'true'
 is_windows = platform.system() == 'Windows'
 
-logger.info(f"Platform: {platform.system()}, Render: {is_render}, Production: {is_production}")
-
 # Определяем базовую директорию
 basedir = os.path.abspath(os.path.dirname(__file__))
 
-# Настройка базы данных для Render с поддержкой SSL
+# Настройка базы данных
 if is_render:
     database_url = os.environ.get('DATABASE_URL', '')
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
-    # Добавляем SSL параметр для PostgreSQL на Render
     if '?' in database_url:
         SQLALCHEMY_DATABASE_URI = database_url + '&sslmode=require'
     else:
         SQLALCHEMY_DATABASE_URI = database_url + '?sslmode=require'
-    logger.info(f"Using PostgreSQL database on Render")
 else:
-    # Локально используем SQLite
     SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(basedir, 'instance', 'kildear.db')
-    logger.info(f"Using SQLite database locally")
 
-# Настройки для загрузки файлов на Render
+# Настройки для загрузки файлов
 if is_render:
-    # На Render используем /tmp/uploads (временное хранилище)
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/tmp/uploads')
 else:
     UPLOAD_FOLDER = os.path.join('static', 'uploads')
 
-# Создаем все необходимые подпапки
 UPLOAD_SUBFOLDERS = ['avatars', 'images', 'videos', 'covers', 'groups',
-                     'channels', 'chat_images', 'group_covers', 'channel_covers']
+                     'channels', 'chat_images', 'group_covers', 'channel_covers',
+                     'voice_messages']
 
 app.config.update(
     SECRET_KEY=os.environ.get("SECRET_KEY", os.urandom(48).hex()),
@@ -81,46 +76,45 @@ app.config.update(
         "pool_size": 10,
         "max_overflow": 20
     } if is_render else {},
-    MAX_CONTENT_LENGTH=int(os.environ.get("MAX_CONTENT_LENGTH", 100 * 1024 * 1024)),  # 100MB max
+    MAX_CONTENT_LENGTH=int(os.environ.get("MAX_CONTENT_LENGTH", 100 * 1024 * 1024)),
     UPLOAD_FOLDER=UPLOAD_FOLDER,
     WTF_CSRF_TIME_LIMIT=3600,
-
-    # Безопасность сессий
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=is_production,
     PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+    REMEMBER_COOKIE_DURATION=timedelta(days=14),
+    REMEMBER_COOKIE_HTTPONLY=True,
+    REMEMBER_COOKIE_SECURE=is_production,
+    SESSION_REFRESH_EACH_REQUEST=True,
 )
 
 ALLOWED_IMAGE = {"png", "jpg", "jpeg", "gif", "webp"}
 ALLOWED_VIDEO = {"mp4", "webm", "mov", "avi", "mkv"}
+ALLOWED_AUDIO = {"mp3", "wav", "ogg", "m4a"}
 
 db = SQLAlchemy(app)
 csrf = CSRFProtect(app)
 login_mgr = LoginManager(app)
 login_mgr.login_view = "login"
+login_mgr.login_message = "Пожалуйста, войдите для доступа к этой странице."
 login_mgr.login_message_category = "info"
 
 # Rate limiting
 limiter = Limiter(
     key_func=get_remote_address,
     app=app,
-    default_limits=["300 per minute", "3000 per hour"],
+    default_limits=["200 per minute", "2000 per hour"],
     storage_uri="memory://" if is_render else "memory://",
 )
 
-# Настройка Socket.IO в зависимости от платформы
+# Socket.IO
 if is_render:
-    # На Render используем eventlet
     async_mode = 'eventlet'
 elif is_windows:
-    # На Windows используем threading (eventlet не работает на Windows)
     async_mode = 'threading'
 else:
-    # На Linux/Mac можно использовать eventlet
     async_mode = 'eventlet'
-
-logger.info(f"Using SocketIO async_mode: {async_mode}")
 
 socketio = SocketIO(
     app,
@@ -129,7 +123,8 @@ socketio = SocketIO(
     logger=True,
     engineio_logger=True,
     ping_timeout=60,
-    ping_interval=25
+    ping_interval=25,
+    max_http_buffer_size=10e6
 )
 
 
@@ -138,13 +133,10 @@ socketio = SocketIO(
 # ──────────────────────────────────────────────────────────────────────────────
 @app.template_filter('timeago')
 def timeago_filter(date):
-    """Convert datetime to 'time ago' format"""
     if not date:
         return 'recently'
-
     now = datetime.utcnow()
     diff = now - date
-
     if diff.days > 365:
         return f"{diff.days // 365}y ago"
     elif diff.days > 30:
@@ -161,197 +153,31 @@ def timeago_filter(date):
 
 @app.template_filter('format_date')
 def format_date_filter(date, format='%b %d, %Y'):
-    """Format date with custom format"""
-    if not date:
-        return ''
-    return date.strftime(format)
+    return date.strftime(format) if date else ''
 
 
 @app.template_filter('format_time')
 def format_time_filter(date, format='%H:%M'):
-    """Format time with custom format"""
-    if not date:
-        return ''
-    return date.strftime(format)
+    return date.strftime(format) if date else ''
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  DDoS / Abuse Protection
+#  Декоратор для проверки прав администратора
 # ──────────────────────────────────────────────────────────────────────────────
-_req_log: dict = defaultdict(list)
-_blocked_ips: set = set()
-_fail_log: dict = defaultdict(list)
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_admin:
+            abort(403)
+        return f(*args, **kwargs)
 
-
-@app.before_request
-def ddos_shield():
-    # Получаем реальный IP за прокси
-    if request.headers.get('X-Forwarded-For'):
-        ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
-    else:
-        ip = request.remote_addr or '0.0.0.0'
-
-    if ip in _blocked_ips:
-        abort(429)
-
-    now = time.time()
-    window = [t for t in _req_log[ip] if now - t < 10]
-    window.append(now)
-    _req_log[ip] = window
-
-    if len(window) > 200:
-        _blocked_ips.add(ip)
-        app.logger.warning(f"[DDoS] Blocked IP: {ip}")
-        abort(429)
-
-    if request.content_length and request.content_length > app.config["MAX_CONTENT_LENGTH"]:
-        abort(413)
-
-
-@app.after_request
-def security_headers(response):
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = (
-        "geolocation=(), "
-        "camera=(), "
-        "microphone=(), "
-        "accelerometer=(), "
-        "gyroscope=(), "
-        "magnetometer=(), "
-        "payment=()"
-    )
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.socket.io https://fonts.googleapis.com "
-        "https://cdnjs.cloudflare.com; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
-        "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
-        "img-src 'self' data: blob:; "
-        "media-src 'self' blob:; "
-        "connect-src 'self' wss: ws:;"
-    )
-    return response
-
-
-def track_failure(ip: str):
-    now = time.time()
-    fails = [t for t in _fail_log[ip] if now - t < 300]
-    fails.append(now)
-    _fail_log[ip] = fails
-    if len(fails) >= 20:
-        _blocked_ips.add(ip)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  File Upload Helper
-# ──────────────────────────────────────────────────────────────────────────────
-def allowed_file(filename: str, allowed: set) -> bool:
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed
-
-
-def ensure_upload_folders():
-    """Ensure all upload folders exist"""
-    for folder in UPLOAD_SUBFOLDERS:
-        folder_path = os.path.join(app.config['UPLOAD_FOLDER'], folder)
-        try:
-            os.makedirs(folder_path, exist_ok=True)
-            logger.info(f"✅ Folder ready: {folder_path}")
-        except Exception as e:
-            logger.error(f"❌ Failed to create folder {folder_path}: {e}")
-
-
-def save_file(file, subfolder: str):
-    """Сохраняет файл и возвращает URL или None"""
-    if not file or not file.filename:
-        logger.warning("No file provided")
-        return None
-
-    try:
-        # Проверяем расширение
-        ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
-        if not ext:
-            logger.warning(f"No file extension: {file.filename}")
-            return None
-
-        # Проверяем разрешенные типы
-        if ext not in ALLOWED_IMAGE and ext not in ALLOWED_VIDEO:
-            logger.warning(f"File type not allowed: {ext}")
-            return None
-
-        # Генерируем уникальное имя
-        filename = f"{uuid.uuid4().hex}.{ext}"
-
-        # Создаем путь
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], subfolder)
-        os.makedirs(upload_path, exist_ok=True)
-
-        # Полный путь к файлу
-        file_path = os.path.join(upload_path, filename)
-
-        # Сохраняем файл
-        file.save(file_path)
-
-        # Проверяем, что файл сохранился
-        if not os.path.exists(file_path):
-            logger.error(f"❌ File not saved: {file_path}")
-            return None
-
-        # Проверяем размер
-        file_size = os.path.getsize(file_path)
-        if file_size == 0:
-            logger.error(f"❌ File is empty: {file_path}")
-            os.remove(file_path)
-            return None
-
-        logger.info(f"✅ File saved: {file_path} ({file_size} bytes)")
-
-        # Возвращаем URL
-        if is_render:
-            # На Render используем специальный маршрут для файлов
-            return f"/uploads/{subfolder}/{filename}"
-        else:
-            return f"/static/uploads/{subfolder}/{filename}"
-
-    except Exception as e:
-        logger.error(f"❌ Error saving file: {e}")
-        return None
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Маршрут для доступа к загруженным файлам на Render
-# ──────────────────────────────────────────────────────────────────────────────
-@app.route('/uploads/<path:subfolder>/<path:filename>')
-def serve_upload(subfolder, filename):
-    """Serve uploaded files"""
-    try:
-        # Проверяем, что подпапка разрешена
-        if subfolder not in UPLOAD_SUBFOLDERS:
-            abort(404)
-
-        # Формируем путь к файлу
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], subfolder, filename)
-
-        # Проверяем существование
-        if not os.path.exists(file_path):
-            logger.warning(f"File not found: {file_path}")
-            abort(404)
-
-        # Отправляем файл
-        return send_from_directory(
-            os.path.join(app.config['UPLOAD_FOLDER'], subfolder),
-            filename
-        )
-    except Exception as e:
-        logger.error(f"Error serving file: {e}")
-        abort(404)
+    return decorated_function
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Database Models
 # ──────────────────────────────────────────────────────────────────────────────
+
 follows = db.Table(
     "follows",
     db.Column("follower_id", db.Integer, db.ForeignKey("user.id"), primary_key=True),
@@ -398,9 +224,13 @@ class User(UserMixin, db.Model):
     is_private = db.Column(db.Boolean, default=False)
     is_verified = db.Column(db.Boolean, default=False)
     is_banned = db.Column(db.Boolean, default=False)
+    is_admin = db.Column(db.Boolean, default=False)
     is_online = db.Column(db.Boolean, default=False)
     last_seen = db.Column(db.DateTime, default=datetime.utcnow)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    two_factor_enabled = db.Column(db.Boolean, default=False)
+    two_factor_secret = db.Column(db.String(32), nullable=True)
 
     posts = db.relationship("Post", backref="author", lazy="dynamic",
                             foreign_keys="Post.user_id")
@@ -408,11 +238,13 @@ class User(UserMixin, db.Model):
                                 foreign_keys="Message.sender_id")
     recv_msgs = db.relationship("Message", backref="receiver", lazy="dynamic",
                                 foreign_keys="Message.receiver_id")
+
     notifications = db.relationship("Notification", backref="recipient", lazy="dynamic",
                                     foreign_keys="Notification.user_id")
     comments = db.relationship("Comment", backref="author", lazy="dynamic")
     owned_groups = db.relationship("Group", backref="owner", lazy="dynamic")
     owned_channels = db.relationship("Channel", backref="owner", lazy="dynamic")
+    login_history = db.relationship("LoginHistory", backref="user", lazy="dynamic")
 
     blocked_users = db.relationship(
         "User", secondary=blocks,
@@ -467,6 +299,62 @@ class User(UserMixin, db.Model):
         return self.posts.count()
 
 
+class LoginHistory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    ip_address = db.Column(db.String(45), nullable=False)
+    user_agent = db.Column(db.String(200))
+    location = db.Column(db.String(100))
+    success = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class VoiceMessage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    receiver_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    audio_url = db.Column(db.String(300), nullable=False)
+    duration = db.Column(db.Integer, default=0)
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Явно указываем внешние ключи для отношений
+    sender = db.relationship("User", foreign_keys=[sender_id], backref="sent_voice_msgs")
+    receiver = db.relationship("User", foreign_keys=[receiver_id], backref="received_voice_msgs")
+
+
+class Call(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    caller_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    callee_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    call_type = db.Column(db.String(10), nullable=False)
+    status = db.Column(db.String(20), default='missed')
+    duration = db.Column(db.Integer, default=0)
+    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    ended_at = db.Column(db.DateTime, nullable=True)
+
+    caller = db.relationship("User", foreign_keys=[caller_id])
+    callee = db.relationship("User", foreign_keys=[callee_id])
+
+
+class Report(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    reporter_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    reported_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    post_id = db.Column(db.Integer, db.ForeignKey("post.id"), nullable=True)
+    comment_id = db.Column(db.Integer, db.ForeignKey("comment.id"), nullable=True)
+    reason = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    status = db.Column(db.String(20), default='pending')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+
+    reporter = db.relationship("User", foreign_keys=[reporter_id])
+    reported_user = db.relationship("User", foreign_keys=[reported_user_id])
+    reviewer = db.relationship("User", foreign_keys=[reviewed_by])
+
+
 class Post(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
@@ -512,20 +400,6 @@ class Message(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     replies = db.relationship("Message", backref=db.backref("reply_to", remote_side=[id]))
-
-
-class Call(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    caller_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    callee_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    call_type = db.Column(db.String(10), nullable=False)
-    status = db.Column(db.String(20), default='missed')
-    duration = db.Column(db.Integer, default=0)
-    started_at = db.Column(db.DateTime, default=datetime.utcnow)
-    ended_at = db.Column(db.DateTime, nullable=True)
-
-    caller = db.relationship("User", foreign_keys=[caller_id])
-    callee = db.relationship("User", foreign_keys=[callee_id])
 
 
 class Group(db.Model):
@@ -607,24 +481,23 @@ class Notification(db.Model):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  Helper Functions for Templates
+#  Helper Functions
 # ──────────────────────────────────────────────────────────────────────────────
+
 def notification_link(notif):
-    """Generate link for notification based on type"""
     if notif.type in ['like', 'comment', 'mention']:
         if notif.post_id:
             return url_for('view_post', post_id=notif.post_id)
     elif notif.type == 'follow':
         if notif.from_user:
             return url_for('profile', username=notif.from_user.username)
-    elif notif.type in ['missed_call', 'incoming_call']:
+    elif notif.type in ['missed_call', 'incoming_call', 'voice_message']:
         if notif.from_user:
             return url_for('chat', username=notif.from_user.username)
     return '#'
 
 
 def notification_icon(notif):
-    """Get icon for notification type"""
     icons = {
         'like': '❤️',
         'comment': '💬',
@@ -634,16 +507,15 @@ def notification_icon(notif):
         'channel_post': '📢',
         'missed_call': '📞',
         'incoming_call': '📞',
+        'voice_message': '🎤',
         'message': '💬'
     }
     return icons.get(notif.type, '🔔')
 
 
 def notification_text(notif):
-    """Get text for notification"""
     if notif.text:
         return notif.text
-
     if notif.type == 'like':
         return f"{notif.from_user.username} liked your post"
     elif notif.type == 'comment':
@@ -658,9 +530,130 @@ def notification_text(notif):
         return f"New post in channel"
     elif notif.type == 'missed_call':
         return f"Missed call from {notif.from_user.username}"
+    elif notif.type == 'voice_message':
+        return f"Voice message from {notif.from_user.username}"
     elif notif.type == 'message':
         return f"New message from {notif.from_user.username}"
     return "New notification"
+
+
+def allowed_file(filename: str, allowed: set) -> bool:
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed
+
+
+def ensure_upload_folders():
+    for folder in UPLOAD_SUBFOLDERS:
+        folder_path = os.path.join(app.config['UPLOAD_FOLDER'], folder)
+        try:
+            os.makedirs(folder_path, exist_ok=True)
+            logger.info(f"✅ Folder ready: {folder_path}")
+        except Exception as e:
+            logger.error(f"❌ Failed to create folder {folder_path}: {e}")
+
+
+def save_file(file, subfolder: str):
+    if not file or not file.filename:
+        return None
+    try:
+        ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
+        if not ext:
+            return None
+        if ext not in ALLOWED_IMAGE and ext not in ALLOWED_VIDEO and ext not in ALLOWED_AUDIO:
+            return None
+        filename = f"{uuid.uuid4().hex}.{ext}"
+        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], subfolder)
+        os.makedirs(upload_path, exist_ok=True)
+        file_path = os.path.join(upload_path, filename)
+        file.save(file_path)
+        if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+            logger.error(f"❌ File not saved properly: {file_path}")
+            return None
+        logger.info(f"✅ File saved: {file_path}")
+        if is_render:
+            return f"/uploads/{subfolder}/{filename}"
+        else:
+            return f"/static/uploads/{subfolder}/{filename}"
+    except Exception as e:
+        logger.error(f"❌ Error saving file: {e}")
+        return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Маршрут для доступа к загруженным файлам
+# ──────────────────────────────────────────────────────────────────────────────
+@app.route('/uploads/<path:subfolder>/<path:filename>')
+def serve_upload(subfolder, filename):
+    if subfolder not in UPLOAD_SUBFOLDERS:
+        abort(404)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], subfolder, filename)
+    if not os.path.exists(file_path):
+        abort(404)
+    return send_from_directory(
+        os.path.join(app.config['UPLOAD_FOLDER'], subfolder),
+        filename
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  DDoS Protection
+# ──────────────────────────────────────────────────────────────────────────────
+_req_log: dict = defaultdict(list)
+_blocked_ips: set = set()
+_fail_log: dict = defaultdict(list)
+
+
+def get_client_ip():
+    if request.headers.get('X-Forwarded-For'):
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    return request.remote_addr or '0.0.0.0'
+
+
+@app.before_request
+def ddos_shield():
+    ip = get_client_ip()
+    if ip in _blocked_ips:
+        abort(429)
+    now = time.time()
+    window = [t for t in _req_log[ip] if now - t < 10]
+    window.append(now)
+    _req_log[ip] = window
+    if len(window) > 200:
+        _blocked_ips.add(ip)
+        app.logger.warning(f"[DDoS] Blocked IP: {ip}")
+        abort(429)
+    if request.content_length and request.content_length > app.config["MAX_CONTENT_LENGTH"]:
+        abort(413)
+
+
+@app.after_request
+def security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+    csp = [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' https://cdn.socket.io https://cdnjs.cloudflare.com",
+        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+        "font-src 'self' https://cdnjs.cloudflare.com",
+        "img-src 'self' data: blob:",
+        "media-src 'self' blob:",
+        "connect-src 'self' wss: ws:",
+        "frame-ancestors 'none'"
+    ]
+    response.headers["Content-Security-Policy"] = '; '.join(csp)
+    return response
+
+
+def track_failure(ip: str):
+    now = time.time()
+    fails = [t for t in _fail_log[ip] if now - t < 300]
+    fails.append(now)
+    _fail_log[ip] = fails
+    if len(fails) >= 20:
+        _blocked_ips.add(ip)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -706,13 +699,18 @@ def unread_counts():
         user_id=current_user.id, is_read=False).count()
     msg_count = Message.query.filter_by(
         receiver_id=current_user.id, is_read=False, is_deleted=False).count()
-    return jsonify({"notifications": notif_count, "messages": msg_count})
+    voice_count = VoiceMessage.query.filter_by(
+        receiver_id=current_user.id, is_read=False).count()
+    return jsonify({
+        "notifications": notif_count,
+        "messages": msg_count,
+        "voice_messages": voice_count
+    })
 
 
 @app.route("/api/mark_notification_read/<int:notif_id>", methods=["POST"])
 @login_required
 def mark_notification_read(notif_id):
-    """Mark a single notification as read"""
     notif = Notification.query.filter_by(id=notif_id, user_id=current_user.id).first()
     if notif:
         notif.is_read = True
@@ -724,31 +722,417 @@ def mark_notification_read(notif_id):
 @app.route("/api/mark_all_notifications_read", methods=["POST"])
 @login_required
 def mark_all_notifications_read():
-    """Mark all notifications as read"""
     Notification.query.filter_by(user_id=current_user.id, is_read=False).update({"is_read": True})
     db.session.commit()
     return jsonify({"success": True})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  WebSocket Helper Functions
+#  Admin Routes
 # ──────────────────────────────────────────────────────────────────────────────
-def send_notification(user_id, notification_data):
-    """Send notification to specific user via WebSocket"""
-    user_room = f"user_{user_id}"
-    socketio.emit("new_notification", notification_data, room=user_room)
+@app.route("/admin")
+@login_required
+@admin_required
+def admin_dashboard():
+    stats = {
+        "total_users": User.query.count(),
+        "total_posts": Post.query.count(),
+        "total_comments": Comment.query.count(),
+        "total_reports": Report.query.filter_by(status='pending').count(),
+        "new_users_today": User.query.filter(
+            User.created_at >= datetime.utcnow().date()
+        ).count(),
+        "banned_users": User.query.filter_by(is_banned=True).count(),
+    }
+
+    recent_users = User.query.order_by(User.created_at.desc()).limit(10).all()
+    pending_reports = Report.query.filter_by(status='pending').order_by(
+        Report.created_at.desc()
+    ).limit(20).all()
+    recent_logins = LoginHistory.query.order_by(
+        LoginHistory.created_at.desc()
+    ).limit(20).all()
+
+    return render_template(
+        "admin/dashboard.html",
+        stats=stats,
+        recent_users=recent_users,
+        pending_reports=pending_reports,
+        recent_logins=recent_logins
+    )
 
 
-def send_group_update(group_id, update_data):
-    """Send group update to all members"""
-    group_room = f"group_{group_id}"
-    socketio.emit("group_update", update_data, room=group_room)
+@app.route("/admin/users")
+@login_required
+@admin_required
+def admin_users():
+    page = request.args.get("page", 1, type=int)
+    search = request.args.get("search", "")
+
+    query = User.query
+    if search:
+        query = query.filter(
+            or_(
+                User.username.ilike(f"%{search}%"),
+                User.email.ilike(f"%{search}%"),
+                User.display_name.ilike(f"%{search}%")
+            )
+        )
+
+    users = query.order_by(User.created_at.desc()).paginate(
+        page=page, per_page=20, error_out=False
+    )
+
+    return render_template("admin/users.html", users=users, search=search)
 
 
-def send_channel_update(channel_id, update_data):
-    """Send channel update to all subscribers"""
-    channel_room = f"channel_{channel_id}"
-    socketio.emit("channel_update", update_data, room=channel_room)
+@app.route("/admin/user/<int:user_id>/toggle-ban", methods=["POST"])
+@login_required
+@admin_required
+def admin_toggle_ban(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        flash("Нельзя забанить самого себя", "error")
+        return redirect(url_for("admin_users"))
+
+    user.is_banned = not user.is_banned
+    db.session.commit()
+
+    status = "забанен" if user.is_banned else "разбанен"
+    flash(f"Пользователь {user.username} {status}", "success")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/user/<int:user_id>/toggle-admin", methods=["POST"])
+@login_required
+@admin_required
+def admin_toggle_admin(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        flash("Нельзя изменить свои права администратора", "error")
+        return redirect(url_for("admin_users"))
+
+    user.is_admin = not user.is_admin
+    db.session.commit()
+
+    status = "назначен администратором" if user.is_admin else "лишен прав администратора"
+    flash(f"Пользователь {user.username} {status}", "success")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/reports")
+@login_required
+@admin_required
+def admin_reports():
+    status = request.args.get("status", "pending")
+
+    query = Report.query
+    if status != "all":
+        query = query.filter_by(status=status)
+
+    reports = query.order_by(Report.created_at.desc()).all()
+    return render_template("admin/reports.html", reports=reports, current_status=status)
+
+
+@app.route("/admin/report/<int:report_id>/review", methods=["POST"])
+@login_required
+@admin_required
+def admin_review_report(report_id):
+    report = Report.query.get_or_404(report_id)
+    action = request.form.get("action")
+
+    if action == "dismiss":
+        report.status = "dismissed"
+        flash("Жалоба отклонена", "success")
+    elif action == "approve":
+        report.status = "reviewed"
+        if report.reported_user_id:
+            user = User.query.get(report.reported_user_id)
+            if user:
+                user.is_banned = True
+                flash(f"Пользователь {user.username} забанен", "success")
+
+    report.reviewed_at = datetime.utcnow()
+    report.reviewed_by = current_user.id
+    db.session.commit()
+
+    return redirect(url_for("admin_reports"))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Voice Message Routes
+# ──────────────────────────────────────────────────────────────────────────────
+@app.route("/voice/send", methods=["POST"])
+@login_required
+@limiter.limit("30 per hour")
+def send_voice_message():
+    try:
+        receiver_id = request.form.get("receiver_id", type=int)
+        audio_file = request.files.get("audio")
+
+        if not audio_file or not audio_file.filename:
+            return jsonify({"error": "No audio file provided"}), 400
+
+        receiver = User.query.get_or_404(receiver_id)
+
+        if current_user.is_blocked(receiver):
+            return jsonify({"error": "Cannot send message to blocked user"}), 403
+
+        ext = audio_file.filename.rsplit('.', 1)[1].lower()
+        if ext not in ALLOWED_AUDIO:
+            return jsonify({"error": "Audio format not supported"}), 400
+
+        filename = f"voice_{uuid.uuid4().hex}.{ext}"
+        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], 'voice_messages')
+        os.makedirs(upload_path, exist_ok=True)
+        file_path = os.path.join(upload_path, filename)
+        audio_file.save(file_path)
+
+        duration = request.form.get("duration", 0, type=int)
+
+        voice_msg = VoiceMessage(
+            sender_id=current_user.id,
+            receiver_id=receiver.id,
+            audio_url=f"/uploads/voice_messages/{filename}",
+            duration=duration
+        )
+        db.session.add(voice_msg)
+        db.session.commit()
+
+        notif = Notification(
+            user_id=receiver.id,
+            from_user_id=current_user.id,
+            type="voice_message",
+            text=f"Voice message from {current_user.username}"
+        )
+        db.session.add(notif)
+        db.session.commit()
+
+        room = "_".join(sorted([str(current_user.id), str(receiver.id)]))
+        socketio.emit("new_voice_message", {
+            "id": voice_msg.id,
+            "sender_id": current_user.id,
+            "sender_username": current_user.username,
+            "sender_avatar": current_user.avatar,
+            "audio_url": voice_msg.audio_url,
+            "duration": voice_msg.duration,
+            "created_at": voice_msg.created_at.strftime("%H:%M")
+        }, room=room)
+
+        send_notification(receiver.id, {
+            "type": "voice_message",
+            "from_user": {
+                "id": current_user.id,
+                "username": current_user.username,
+                "avatar": current_user.avatar
+            },
+            "text": f"Voice message from {current_user.username}"
+        })
+
+        return jsonify({"success": True, "id": voice_msg.id})
+
+    except Exception as e:
+        logger.error(f"Error sending voice message: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/voice/<int:message_id>")
+@login_required
+def get_voice_message(message_id):
+    msg = VoiceMessage.query.get_or_404(message_id)
+
+    if msg.sender_id != current_user.id and msg.receiver_id != current_user.id:
+        abort(403)
+
+    return jsonify({
+        "id": msg.id,
+        "sender_id": msg.sender_id,
+        "audio_url": msg.audio_url,
+        "duration": msg.duration,
+        "created_at": msg.created_at.isoformat(),
+        "is_read": msg.is_read
+    })
+
+
+@app.route("/voice/mark-read/<int:message_id>", methods=["POST"])
+@login_required
+def mark_voice_read(message_id):
+    msg = VoiceMessage.query.get_or_404(message_id)
+    if msg.receiver_id == current_user.id:
+        msg.is_read = True
+        db.session.commit()
+        return jsonify({"success": True})
+    return jsonify({"error": "Not authorized"}), 403
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Call Routes
+# ──────────────────────────────────────────────────────────────────────────────
+@app.route("/call/start", methods=["POST"])
+@login_required
+@limiter.limit("30 per hour")
+def start_call():
+    try:
+        data = request.get_json()
+        callee_id = data.get('callee_id')
+        call_type = data.get('type', 'audio')
+
+        callee = User.query.get_or_404(callee_id)
+
+        if current_user.is_blocked(callee):
+            return jsonify({"error": "Cannot call blocked user"}), 403
+
+        existing_call = Call.query.filter(
+            and_(
+                or_(
+                    and_(Call.caller_id == callee_id, Call.status == 'ongoing'),
+                    and_(Call.callee_id == callee_id, Call.status == 'ongoing')
+                )
+            )
+        ).first()
+
+        if existing_call:
+            return jsonify({"error": "User is already in a call"}), 409
+
+        call = Call(
+            caller_id=current_user.id,
+            callee_id=callee.id,
+            call_type=call_type,
+            status='ongoing'
+        )
+        db.session.add(call)
+        db.session.commit()
+
+        webrtc_config = {
+            'iceServers': [
+                {'urls': 'stun:stun.l.google.com:19302'},
+                {'urls': 'stun:stun1.l.google.com:19302'},
+                {'urls': 'stun:stun2.l.google.com:19302'},
+                {'urls': 'stun:stun3.l.google.com:19302'},
+                {'urls': 'stun:stun4.l.google.com:19302'}
+            ]
+        }
+
+        room = f"user_{callee.id}"
+        socketio.emit("incoming_call", {
+            "call_id": call.id,
+            "caller_id": current_user.id,
+            "caller_username": current_user.username,
+            "caller_avatar": current_user.avatar,
+            "type": call_type,
+            "webrtc_config": webrtc_config
+        }, room=room)
+
+        return jsonify({
+            "success": True,
+            "call_id": call.id,
+            "webrtc_config": webrtc_config
+        })
+
+    except Exception as e:
+        logger.error(f"Error starting call: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/call/<int:call_id>/accept", methods=["POST"])
+@login_required
+def accept_call(call_id):
+    call = Call.query.get_or_404(call_id)
+
+    if call.callee_id != current_user.id:
+        return jsonify({"error": "Not authorized"}), 403
+
+    call.status = 'ongoing'
+    call.started_at = datetime.utcnow()
+    db.session.commit()
+
+    room = f"user_{call.caller_id}"
+    socketio.emit("call_accepted", {
+        "call_id": call.id,
+        "accepted_by": current_user.id
+    }, room=room)
+
+    return jsonify({"success": True})
+
+
+@app.route("/call/<int:call_id>/reject", methods=["POST"])
+@login_required
+def reject_call(call_id):
+    call = Call.query.get_or_404(call_id)
+
+    if call.callee_id != current_user.id:
+        return jsonify({"error": "Not authorized"}), 403
+
+    call.status = 'rejected'
+    call.ended_at = datetime.utcnow()
+    db.session.commit()
+
+    room = f"user_{call.caller_id}"
+    socketio.emit("call_rejected", {
+        "call_id": call.id,
+        "rejected_by": current_user.id
+    }, room=room)
+
+    return jsonify({"success": True})
+
+
+@app.route("/call/<int:call_id>/end", methods=["POST"])
+@login_required
+def end_call(call_id):
+    call = Call.query.get_or_404(call_id)
+
+    if call.caller_id != current_user.id and call.callee_id != current_user.id:
+        return jsonify({"error": "Not authorized"}), 403
+
+    call.status = 'completed'
+    call.ended_at = datetime.utcnow()
+
+    if call.started_at:
+        duration = (call.ended_at - call.started_at).seconds
+        call.duration = duration
+
+    db.session.commit()
+
+    other_id = call.caller_id if call.callee_id == current_user.id else call.callee_id
+    room = f"user_{other_id}"
+    socketio.emit("call_ended", {
+        "call_id": call.id,
+        "ended_by": current_user.id,
+        "duration": call.duration
+    }, room=room)
+
+    return jsonify({"success": True})
+
+
+@app.route("/call/history")
+@login_required
+def call_history():
+    calls = Call.query.filter(
+        or_(
+            Call.caller_id == current_user.id,
+            Call.callee_id == current_user.id
+        )
+    ).order_by(Call.started_at.desc()).limit(50).all()
+
+    call_list = []
+    for call in calls:
+        other = User.query.get(call.caller_id if call.callee_id == current_user.id else call.callee_id)
+        call_list.append({
+            "id": call.id,
+            "other_user": {
+                "id": other.id,
+                "username": other.username,
+                "display_name": other.display_name,
+                "avatar": other.avatar
+            },
+            "type": call.call_type,
+            "status": call.status,
+            "duration": call.duration,
+            "started_at": call.started_at.isoformat(),
+            "is_outgoing": call.caller_id == current_user.id
+        })
+
+    return jsonify({"calls": call_list})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -780,8 +1164,8 @@ def register():
                 flash("Неверный формат email", "error")
                 return render_template("register.html")
 
-            if len(password) < 6:
-                flash("Пароль должен быть не менее 6 символов", "error")
+            if len(password) < 8:
+                flash("Пароль должен быть не менее 8 символов", "error")
                 return render_template("register.html")
 
             if password != confirm:
@@ -829,7 +1213,7 @@ def register():
 
 
 @app.route("/login", methods=["GET", "POST"])
-@limiter.limit("15 per minute")
+@limiter.limit("10 per minute")
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("index"))
@@ -839,36 +1223,41 @@ def login():
         password = request.form.get("password", "")
         remember = bool(request.form.get("remember"))
 
-        # Get real IP behind proxy
-        if request.headers.get('X-Forwarded-For'):
-            ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
-        else:
-            ip = request.remote_addr or '0.0.0.0'
+        ip = get_client_ip()
+        user_agent = request.headers.get('User-Agent', '')
 
         user = User.query.filter(
             or_(func.lower(User.username) == identifier.lower(),
-                func.lower(User.email) == identifier.lower())).first()
+                func.lower(User.email) == identifier.lower())
+        ).first()
 
-        if not user or not user.check_password(password):
+        login_success = False
+
+        if user and user.check_password(password) and not user.is_banned:
+            login_user(user, remember=remember)
+            session.permanent = remember
+
+            user.is_online = True
+            user.last_seen = datetime.utcnow()
+
+            login_success = True
+            flash(f"С возвращением, {user.username}! 👋", "success")
+        else:
             track_failure(ip)
             flash("Неверные учетные данные.", "error")
-            return render_template("login.html")
 
-        if user.is_banned:
-            flash("Этот аккаунт заблокирован.", "error")
-            return render_template("login.html")
-
-        login_user(user, remember=remember)
-        session.permanent = remember
-
-        # Update online status
-        user.is_online = True
-        user.last_seen = datetime.utcnow()
+        login_history = LoginHistory(
+            user_id=user.id if user else None,
+            ip_address=ip,
+            user_agent=user_agent,
+            success=login_success
+        )
+        db.session.add(login_history)
         db.session.commit()
 
-        next_page = request.args.get("next")
-        flash(f"С возвращением, {user.username}! 👋", "success")
-        return redirect(next_page or url_for("index"))
+        if login_success:
+            next_page = request.args.get("next")
+            return redirect(next_page or url_for("index"))
 
     return render_template("login.html")
 
@@ -894,7 +1283,6 @@ def index():
     page = request.args.get("page", 1, type=int)
     followed_ids = [u.id for u in current_user.following.all()] + [current_user.id]
 
-    # Exclude blocked users
     blocked_ids = [b.id for b in current_user.blocked_users]
 
     posts = (Post.query
@@ -926,19 +1314,14 @@ def create_post():
     if media_file and media_file.filename:
         try:
             ext = media_file.filename.rsplit(".", 1)[-1].lower() if '.' in media_file.filename else ''
-            logger.info(f"Загружается файл: {media_file.filename}, расширение: {ext}")
-
             if ext in ALLOWED_VIDEO:
                 media_url = save_file(media_file, "videos")
                 media_type = "video"
-                logger.info(f"Видео сохранено: {media_url}")
             elif ext in ALLOWED_IMAGE:
                 media_url = save_file(media_file, "images")
                 media_type = "image"
-                logger.info(f"Изображение сохранено: {media_url}")
             else:
-                flash(f"Неподдерживаемый тип файла. Разрешены: изображения {ALLOWED_IMAGE} и видео {ALLOWED_VIDEO}",
-                      "error")
+                flash(f"Неподдерживаемый тип файла", "error")
                 return redirect(url_for("index"))
         except Exception as e:
             logger.error(f"Ошибка при сохранении файла: {e}")
@@ -968,7 +1351,6 @@ def create_post():
 def view_post(post_id):
     post = Post.query.get_or_404(post_id)
 
-    # Check if user is blocked
     if post.author.id in [b.id for b in current_user.blocked_users]:
         abort(403)
 
@@ -983,7 +1365,6 @@ def view_post(post_id):
 def like_post(post_id):
     post = Post.query.get_or_404(post_id)
 
-    # Check if user is blocked
     if post.author.id in [b.id for b in current_user.blocked_users]:
         return jsonify({"error": "Cannot interact with blocked user"}), 403
 
@@ -1002,8 +1383,6 @@ def like_post(post_id):
                 text=f"{current_user.username} liked your post."
             )
             db.session.add(n)
-
-            # Send real-time notification
             send_notification(post.user_id, {
                 "type": "like",
                 "from_user": {
@@ -1025,7 +1404,6 @@ def like_post(post_id):
 def add_comment(post_id):
     post = Post.query.get_or_404(post_id)
 
-    # Check if user is blocked
     if post.author.id in [b.id for b in current_user.blocked_users]:
         return jsonify({"error": "Cannot interact with blocked user"}), 403
 
@@ -1045,8 +1423,6 @@ def add_comment(post_id):
             text=f"{current_user.username} commented on your post."
         )
         db.session.add(n)
-
-        # Send real-time notification
         send_notification(post.user_id, {
             "type": "comment",
             "from_user": {
@@ -1090,13 +1466,11 @@ def delete_post(post_id):
 def profile(username):
     user = User.query.filter(func.lower(User.username) == username.lower()).first_or_404()
 
-    # Check if user is blocked
     is_blocked = current_user.is_blocked(user) if user.id != current_user.id else False
 
     page = request.args.get("page", 1, type=int)
     tab = request.args.get("tab", "posts")
 
-    # Filter posts if blocked
     if is_blocked:
         posts = []
         videos = []
@@ -1120,7 +1494,6 @@ def profile(username):
 def edit_profile():
     if request.method == "POST":
         try:
-            # Обновляем текстовые поля
             current_user.display_name = request.form.get("display_name", "")[:60]
             current_user.bio = request.form.get("bio", "")[:500]
             current_user.website = request.form.get("website", "")[:200]
@@ -1128,10 +1501,8 @@ def edit_profile():
             current_user.accent_color = request.form.get("accent_color", "#6c63ff")[:7]
             current_user.is_private = bool(request.form.get("is_private"))
 
-            # Обработка аватара
             avatar = request.files.get("avatar")
             if avatar and avatar.filename:
-                # Проверяем размер файла (макс 5MB)
                 avatar.seek(0, 2)
                 file_size = avatar.tell()
                 avatar.seek(0)
@@ -1143,14 +1514,11 @@ def edit_profile():
                     if url:
                         current_user.avatar = url
                         flash("Avatar updated successfully!", "success")
-                        logger.info(f"Avatar updated: {url}")
                     else:
                         flash("Failed to upload avatar. Please try again.", "error")
 
-            # Обработка обложки
             cover = request.files.get("cover_photo")
             if cover and cover.filename:
-                # Проверяем размер файла (макс 10MB)
                 cover.seek(0, 2)
                 file_size = cover.tell()
                 cover.seek(0)
@@ -1162,7 +1530,6 @@ def edit_profile():
                     if url:
                         current_user.cover_photo = url
                         flash("Cover photo updated successfully!", "success")
-                        logger.info(f"Cover updated: {url}")
                     else:
                         flash("Failed to upload cover photo. Please try again.", "error")
 
@@ -1187,7 +1554,6 @@ def follow(username):
     if user.id == current_user.id:
         return jsonify({"error": "Cannot follow yourself."}), 400
 
-    # Check if user is blocked
     if current_user.is_blocked(user):
         return jsonify({"error": "Cannot follow blocked user"}), 400
 
@@ -1204,8 +1570,6 @@ def follow(username):
             text=f"{current_user.username} started following you."
         )
         db.session.add(n)
-
-        # Send real-time notification
         send_notification(user.id, {
             "type": "follow",
             "from_user": {
@@ -1231,15 +1595,12 @@ def block_user(user_id):
         return jsonify({"error": "Cannot block yourself"}), 400
 
     if current_user.block(user):
-        # Remove from following/followers
         if current_user.is_following(user):
             current_user.following.remove(user)
         if user.is_following(current_user):
             user.following.remove(current_user)
-
         db.session.commit()
         return jsonify({"success": True, "blocked": True})
-
     return jsonify({"error": "User already blocked"}), 400
 
 
@@ -1261,7 +1622,6 @@ def unblock_user(user_id):
 def video_feed():
     page = request.args.get("page", 1, type=int)
 
-    # Exclude blocked users
     blocked_ids = [b.id for b in current_user.blocked_users]
 
     videos = (Post.query.filter_by(media_type="video")
@@ -1282,7 +1642,6 @@ def search():
     q = request.args.get("q", "").strip()
     tab = request.args.get("tab", "people")
 
-    # Remove @ symbol if present
     if q.startswith('@'):
         q = q[1:]
 
@@ -1291,12 +1650,10 @@ def search():
     groups = []
     channels = []
 
-    # Exclude blocked users
     blocked_ids = [b.id for b in current_user.blocked_users]
 
     if q:
         pattern = f"%{q}%"
-        # Search users by username or display_name (exclude blocked)
         users = User.query.filter(
             or_(
                 User.username.ilike(pattern),
@@ -1318,7 +1675,6 @@ def search():
             or_(Channel.name.ilike(pattern),
                 Channel.description.ilike(pattern))).limit(10).all()
 
-    # For AJAX requests from chat
     if request.args.get("ajax") == "1" or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return jsonify({
             "users": [{
@@ -1341,13 +1697,11 @@ def search():
 @app.route("/chat")
 @login_required
 def chat_list():
-    """Show all unique conversation partners."""
     try:
         sent_to = db.session.query(Message.receiver_id).filter_by(sender_id=current_user.id).distinct()
         recv_from = db.session.query(Message.sender_id).filter_by(receiver_id=current_user.id).distinct()
         uid_set = {r[0] for r in sent_to} | {r[0] for r in recv_from}
 
-        # Exclude blocked users
         blocked_ids = [b.id for b in current_user.blocked_users]
         uid_set = uid_set - set(blocked_ids)
 
@@ -1367,10 +1721,15 @@ def chat_list():
                       .filter_by(sender_id=p.id, receiver_id=current_user.id, is_read=False, is_deleted=False)
                       .count())
 
+            voice_unread = VoiceMessage.query.filter_by(
+                sender_id=p.id, receiver_id=current_user.id, is_read=False
+            ).count()
+
             conversations.append({
                 "user": p,
                 "last": last,
-                "unread": unread
+                "unread": unread,
+                "voice_unread": voice_unread
             })
 
         conversations.sort(key=lambda x: x["last"].created_at if x["last"] else datetime.min, reverse=True)
@@ -1389,19 +1748,20 @@ def chat(username):
         partner = User.query.filter(
             func.lower(User.username) == username.lower()).first_or_404()
 
-        # Check if user is blocked
         is_blocked = current_user.is_blocked(partner)
 
-        # Mark messages as read (only if not blocked)
         if not is_blocked:
             Message.query.filter_by(
                 sender_id=partner.id, receiver_id=current_user.id, is_read=False
             ).update({"is_read": True})
+            VoiceMessage.query.filter_by(
+                sender_id=partner.id, receiver_id=current_user.id, is_read=False
+            ).update({"is_read": True})
             db.session.commit()
 
-        # Get messages (exclude if blocked)
         if is_blocked:
             messages = []
+            voice_messages = []
         else:
             messages = (Message.query
                         .filter(or_(
@@ -1411,12 +1771,17 @@ def chat(username):
                         .filter(Message.is_deleted == False)
                         .order_by(Message.created_at.asc()).limit(100).all())
 
-        # Get all conversations for sidebar
+            voice_messages = VoiceMessage.query.filter(
+                or_(
+                    and_(VoiceMessage.sender_id == current_user.id, VoiceMessage.receiver_id == partner.id),
+                    and_(VoiceMessage.sender_id == partner.id, VoiceMessage.receiver_id == current_user.id)
+                )
+            ).order_by(VoiceMessage.created_at.asc()).limit(50).all()
+
         sent_to = db.session.query(Message.receiver_id).filter_by(sender_id=current_user.id).distinct()
         recv_from = db.session.query(Message.sender_id).filter_by(receiver_id=current_user.id).distinct()
         uid_set = {r[0] for r in sent_to} | {r[0] for r in recv_from}
 
-        # Exclude blocked users
         blocked_ids = [b.id for b in current_user.blocked_users]
         uid_set = uid_set - set(blocked_ids)
 
@@ -1447,6 +1812,7 @@ def chat(username):
         return render_template("chat.html",
                                partner=partner,
                                messages=messages,
+                               voice_messages=voice_messages,
                                conversations=conversations,
                                is_blocked=is_blocked)
 
@@ -1464,7 +1830,6 @@ def send_message(username):
         partner = User.query.filter(
             func.lower(User.username) == username.lower()).first_or_404()
 
-        # Check if user is blocked
         if current_user.is_blocked(partner):
             return jsonify({"error": "Cannot send message to blocked user"}), 403
 
@@ -1489,7 +1854,6 @@ def send_message(username):
         db.session.add(msg)
         db.session.commit()
 
-        # Create notification for the receiver
         notif = Notification(
             user_id=partner.id,
             from_user_id=current_user.id,
@@ -1499,7 +1863,6 @@ def send_message(username):
         db.session.add(notif)
         db.session.commit()
 
-        # Данные сообщения для WebSocket
         message_data = {
             "id": msg.id,
             "sender_id": current_user.id,
@@ -1511,11 +1874,9 @@ def send_message(username):
             "created_at": msg.created_at.strftime("%H:%M"),
         }
 
-        # Отправляем в комнату чата
         room = "_".join(sorted([str(current_user.id), str(partner.id)]))
         socketio.emit("new_message", message_data, room=room)
 
-        # Отправляем уведомление получателю
         send_notification(partner.id, {
             "type": "message",
             "from_user": {
@@ -1536,11 +1897,9 @@ def send_message(username):
 @app.route("/chat/message/<int:message_id>/delete", methods=["POST"])
 @login_required
 def delete_message(message_id):
-    """Delete a message (soft delete)"""
     try:
         msg = Message.query.get_or_404(message_id)
 
-        # Only allow deleting own messages
         if msg.sender_id != current_user.id:
             return jsonify({"error": "Cannot delete other's messages"}), 403
 
@@ -1551,46 +1910,6 @@ def delete_message(message_id):
 
     except Exception as e:
         logger.error(f"Ошибка при удалении сообщения: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/chat/message/<int:message_id>/forward", methods=["POST"])
-@login_required
-@limiter.limit("30 per minute")
-def forward_message(message_id):
-    """Forward a message to another user"""
-    try:
-        data = request.get_json()
-        to_user_id = data.get('to_user_id')
-
-        original_msg = Message.query.get_or_404(message_id)
-
-        # Check if user can forward this message
-        if original_msg.sender_id != current_user.id and original_msg.receiver_id != current_user.id:
-            return jsonify({"error": "Cannot forward this message"}), 403
-
-        target_user = User.query.get_or_404(to_user_id)
-
-        # Check if target user is blocked
-        if current_user.is_blocked(target_user):
-            return jsonify({"error": "Cannot forward to blocked user"}), 403
-
-        # Create forwarded message
-        forward_text = f"[Forwarded] {original_msg.content}" if original_msg.content else "[Forwarded Media]"
-
-        new_msg = Message(
-            sender_id=current_user.id,
-            receiver_id=target_user.id,
-            content=forward_text,
-            media_url=original_msg.media_url
-        )
-        db.session.add(new_msg)
-        db.session.commit()
-
-        return jsonify({"success": True, "message_id": new_msg.id})
-
-    except Exception as e:
-        logger.error(f"Ошибка при пересылке сообщения: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -1615,7 +1934,6 @@ def create_group():
         desc = request.form.get("description", "").strip()[:500]
         priv = bool(request.form.get("is_private"))
 
-        # Создаем slug из названия
         base_slug = re.sub(r"[^a-z0-9-]", "", name.lower().replace(" ", "-"))
         slug = base_slug[:50] + f"-{uuid.uuid4().hex[:6]}"
 
@@ -1674,8 +1992,6 @@ def join_group(slug):
         g.members.append(current_user)
         db.session.commit()
         flash(f"Вы присоединились к группе '{g.name}'", "success")
-
-        # Send group update
         send_group_update(g.id, {
             "type": "member_joined",
             "user_id": current_user.id,
@@ -1699,8 +2015,6 @@ def leave_group(slug):
         g.members.remove(current_user)
         db.session.commit()
         flash(f"Вы покинули группу '{g.name}'", "info")
-
-        # Send group update
         send_group_update(g.id, {
             "type": "member_left",
             "user_id": current_user.id,
@@ -1745,7 +2059,6 @@ def group_post(slug):
     db.session.add(p)
     db.session.commit()
 
-    # Получаем данные автора
     author_data = {
         "id": current_user.id,
         "username": current_user.username,
@@ -1753,7 +2066,6 @@ def group_post(slug):
         "avatar": current_user.avatar
     }
 
-    # Создаем данные поста
     post_data = {
         "id": p.id,
         "content": p.content,
@@ -1763,7 +2075,6 @@ def group_post(slug):
         "author": author_data
     }
 
-    # Отправляем уведомление всем участникам группы через WebSocket
     group_room = f"group_{g.id}"
     socketio.emit("new_group_post", {
         "group_id": g.id,
@@ -1772,7 +2083,6 @@ def group_post(slug):
         "post": post_data
     }, room=group_room)
 
-    # Создаем уведомления для всех участников группы (кроме автора)
     for member in g.members:
         if member.id != current_user.id:
             notif = Notification(
@@ -1782,8 +2092,6 @@ def group_post(slug):
                 text=f"New post in {g.name}"
             )
             db.session.add(notif)
-
-            # Отправляем WebSocket уведомление
             send_notification(member.id, {
                 "type": "group_post",
                 "from_user": author_data,
@@ -1823,7 +2131,6 @@ def create_channel():
         name = request.form.get("name", "").strip()[:100]
         desc = request.form.get("description", "").strip()[:500]
 
-        # Создаем slug из названия
         base_slug = re.sub(r"[^a-z0-9-]", "", name.lower().replace(" ", "-"))
         slug = base_slug[:50] + f"-{uuid.uuid4().hex[:6]}"
 
@@ -1883,8 +2190,6 @@ def subscribe_channel(slug):
         c.subscribers.remove(current_user)
         subscribed = False
         flash(f"Вы отписались от канала '{c.name}'", "info")
-
-        # Send channel update
         send_channel_update(c.id, {
             "type": "subscriber_left",
             "user_id": current_user.id,
@@ -1895,8 +2200,6 @@ def subscribe_channel(slug):
         c.subscribers.append(current_user)
         subscribed = True
         flash(f"Вы подписались на канал '{c.name}'", "success")
-
-        # Send channel update
         send_channel_update(c.id, {
             "type": "subscriber_joined",
             "user_id": current_user.id,
@@ -1941,7 +2244,6 @@ def channel_publish(slug):
     db.session.add(p)
     db.session.commit()
 
-    # Создаем данные поста
     post_data = {
         "id": p.id,
         "content": p.content,
@@ -1950,7 +2252,6 @@ def channel_publish(slug):
         "created_at": p.created_at.strftime("%Y-%m-%d %H:%M:%S")
     }
 
-    # Отправляем уведомление всем подписчикам канала через WebSocket
     channel_room = f"channel_{c.id}"
     socketio.emit("new_channel_post", {
         "channel_id": c.id,
@@ -1959,7 +2260,6 @@ def channel_publish(slug):
         "post": post_data
     }, room=channel_room)
 
-    # Создаем уведомления для всех подписчиков
     for subscriber in c.subscribers:
         if subscriber.id != current_user.id:
             notif = Notification(
@@ -1969,8 +2269,6 @@ def channel_publish(slug):
                 text=f"New post in {c.name}"
             )
             db.session.add(notif)
-
-            # Отправляем WebSocket уведомление
             send_notification(subscriber.id, {
                 "type": "channel_post",
                 "from_user": {
@@ -2011,13 +2309,11 @@ def notifications():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  Debug endpoint for uploads
+#  Debug endpoint
 # ──────────────────────────────────────────────────────────────────────────────
 @app.route("/debug/uploads")
 @login_required
 def debug_uploads():
-    """Debug endpoint to check uploaded files"""
-    # Only allow admin user for security
     if current_user.username != 'admin':
         abort(403)
 
@@ -2034,7 +2330,7 @@ def debug_uploads():
             path = os.path.join(upload_folder, subfolder)
             if os.path.exists(path):
                 try:
-                    files = os.listdir(path)[-20:]  # Last 20 files
+                    files = os.listdir(path)[-20:]
                     result['subfolders'][subfolder] = {
                         "path": path,
                         "exists": True,
@@ -2058,13 +2354,30 @@ def debug_uploads():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+#  WebSocket Helper Functions
+# ──────────────────────────────────────────────────────────────────────────────
+def send_notification(user_id, notification_data):
+    user_room = f"user_{user_id}"
+    socketio.emit("new_notification", notification_data, room=user_room)
+
+
+def send_group_update(group_id, update_data):
+    group_room = f"group_{group_id}"
+    socketio.emit("group_update", update_data, room=group_room)
+
+
+def send_channel_update(channel_id, update_data):
+    channel_room = f"channel_{channel_id}"
+    socketio.emit("channel_update", update_data, room=channel_room)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 #  Socket.IO Events
 # ──────────────────────────────────────────────────────────────────────────────
 @socketio.on("connect")
 def handle_connect():
     if current_user.is_authenticated:
         logger.info(f"User {current_user.id} connected")
-        # Join user to their personal room
         user_room = f"user_{current_user.id}"
         join_room(user_room)
 
@@ -2103,20 +2416,16 @@ def on_typing(data):
 
 @socketio.on("join_group_room")
 def on_join_group(data):
-    """Join group room"""
     group_id = data.get("group_id")
     if group_id and current_user.is_authenticated:
-        # Проверяем, является ли пользователь участником группы
         group = Group.query.get(group_id)
         if group and group.members.filter(User.id == current_user.id).count() > 0:
             room = f"group_{group_id}"
             join_room(room)
-            logger.info(f"User {current_user.id} joined group room {group_id}")
 
 
 @socketio.on("leave_group_room")
 def on_leave_group(data):
-    """Leave group room"""
     group_id = data.get("group_id")
     if group_id:
         room = f"group_{group_id}"
@@ -2125,20 +2434,16 @@ def on_leave_group(data):
 
 @socketio.on("join_channel_room")
 def on_join_channel(data):
-    """Join channel room"""
     channel_id = data.get("channel_id")
     if channel_id and current_user.is_authenticated:
-        # Проверяем, подписан ли пользователь на канал
         channel = Channel.query.get(channel_id)
         if channel and channel.subscribers.filter(User.id == current_user.id).count() > 0:
             room = f"channel_{channel_id}"
             join_room(room)
-            logger.info(f"User {current_user.id} joined channel room {channel_id}")
 
 
 @socketio.on("leave_channel_room")
 def on_leave_channel(data):
-    """Leave channel room"""
     channel_id = data.get("channel_id")
     if channel_id:
         room = f"channel_{channel_id}"
@@ -2147,11 +2452,42 @@ def on_leave_channel(data):
 
 @socketio.on("join_user_room")
 def on_join_user():
-    """Join user to their personal room for notifications"""
     if current_user.is_authenticated:
         user_room = f"user_{current_user.id}"
         join_room(user_room)
-        logger.info(f"User {current_user.id} joined personal room")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  WebRTC Signaling
+# ──────────────────────────────────────────────────────────────────────────────
+@socketio.on("webrtc_offer")
+def on_webrtc_offer(data):
+    room = data.get("room")
+    if room:
+        emit("webrtc_offer", {
+            "offer": data.get("offer"),
+            "from": current_user.id
+        }, room=room, include_self=False)
+
+
+@socketio.on("webrtc_answer")
+def on_webrtc_answer(data):
+    room = data.get("room")
+    if room:
+        emit("webrtc_answer", {
+            "answer": data.get("answer"),
+            "from": current_user.id
+        }, room=room, include_self=False)
+
+
+@socketio.on("webrtc_ice_candidate")
+def on_webrtc_ice_candidate(data):
+    room = data.get("room")
+    if room:
+        emit("webrtc_ice_candidate", {
+            "candidate": data.get("candidate"),
+            "from": current_user.id
+        }, room=room, include_self=False)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2195,46 +2531,72 @@ def uploaded_file(filename):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+#  Create Admin User
+# ──────────────────────────────────────────────────────────────────────────────
+def create_admin_user():
+    """Create first admin user if none exists"""
+    with app.app_context():
+        admin = User.query.filter_by(username='admin').first()
+        if not admin:
+            admin_password = os.environ.get('ADMIN_PASSWORD', 'Admin123!')
+            admin = User(
+                username='admin',
+                email='admin@kildear.com',
+                display_name='Administrator',
+                is_admin=True,
+                is_verified=True
+            )
+            admin.set_password(admin_password)
+            db.session.add(admin)
+            db.session.commit()
+            print("✅ Admin user created")
+            print(f"   Username: admin")
+            print(f"   Password: {admin_password}")
+        else:
+            print("✅ Admin user already exists")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 #  DB Init & Run
 # ──────────────────────────────────────────────────────────────────────────────
 def init_app():
-    """Инициализация приложения и создание необходимых файлов и папок."""
+    """Initialize application"""
     with app.app_context():
         try:
-            # Создаем таблицы
             db.create_all()
-            print("✅ Таблицы созданы успешно")
+            print("✅ Database tables created")
 
-            # Создаем все папки для загрузок
             ensure_upload_folders()
 
-            # Проверяем права доступа
+            # Test write permissions
             test_file = os.path.join(app.config['UPLOAD_FOLDER'], 'test.txt')
             try:
                 with open(test_file, 'w') as f:
                     f.write('test')
                 os.remove(test_file)
-                print("✅ Права записи в UPLOAD_FOLDER есть")
+                print("✅ Upload folder is writable")
             except Exception as e:
-                print(f"❌ Нет прав записи в UPLOAD_FOLDER: {e}")
+                print(f"⚠️ Upload folder may not be writable: {e}")
 
-            print("✅ Инициализация завершена")
+            # Create admin user
+            create_admin_user()
+
+            print("✅ Initialization complete")
 
         except Exception as e:
-            print(f"❌ Ошибка при инициализации: {e}")
+            print(f"❌ Initialization error: {e}")
             logger.error(f"Init error: {e}")
 
 
 if __name__ == "__main__":
     init_app()
 
-    # Определяем порт для Render
     port = int(os.environ.get("PORT", 5000))
 
-    print("🚀 Запуск Kildear Social Network...")
-    print(f"🌐 Сервер запускается на порту {port}")
-    print(f"📁 Папка загрузок: {app.config['UPLOAD_FOLDER']}")
-    print("📝 Для остановки сервера нажмите Ctrl+C")
+    print("🚀 Starting Kildear Social Network...")
+    print(f"🌐 Server running on port {port}")
+    print(f"📁 Upload folder: {app.config['UPLOAD_FOLDER']}")
+    print("📝 Press Ctrl+C to stop")
 
     socketio.run(app,
                  debug=not is_production,
