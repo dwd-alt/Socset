@@ -16,8 +16,8 @@
     position: relative;
     height: 220px;
     background:
-      {% if user.cover_url %}
-        url('{{ user.cover_url }}') center/cover no-repeat;
+      {% if user.cover_photo %}
+        url('{{ user.cover_photo }}') center/cover no-repeat;
       {% else %}
         linear-gradient(135deg, var(--user-accent), var(--secondary) 50%, var(--accent));
       {% endif %}
@@ -250,7 +250,7 @@
   <!-- Profile header -->
   <div class="profile-header">
     <div class="avatar-wrap">
-      <img src="{{ user.avatar_url }}" class="profile-avatar" alt="{{ user.username }}"/>
+      <img src="{{ user.avatar }}" class="profile-avatar" alt="{{ user.username }}"/>
       {% if user.is_verified %}<div class="verified-badge"><i class="fa-solid fa-check"></i></div>{% endif %}
     </div>
 

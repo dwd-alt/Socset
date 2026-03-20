@@ -509,13 +509,6 @@
     .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .hidden { display: none !important; }
     hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
-
-    /* ── Data URL Images ─────────────────────────────────────────────── */
-    .data-url-img {
-      background-color: var(--surface2);
-      background-position: center;
-      background-size: cover;
-    }
   </style>
   {% block head %}{% endblock %}
 </head>
@@ -618,7 +611,7 @@
   </a>
 
   <div class="sidebar-user">
-    <img src="{{ current_user.avatar_url }}" alt="" class="avatar"/>
+    <img src="{{ current_user.avatar }}" alt="" class="avatar"/>
     <div class="sidebar-user-info">
       <div class="name truncate">{{ current_user.display_name or current_user.username }}</div>
       <div class="handle">@{{ current_user.username }}</div>

@@ -1,7 +1,6 @@
 """
 Kildear Social Network — Complete Version
 Full-featured backend with admin panel, voice messages, calls, and enhanced security
-Images stored in database as Base64
 """
 
 import os
@@ -9,10 +8,8 @@ import re
 import time
 import uuid
 import html
-import base64
 import logging
 import platform
-from io import BytesIO
 from datetime import datetime, timedelta
 from collections import defaultdict
 from functools import wraps
@@ -27,9 +24,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
 from sqlalchemy import or_, func, and_, text
-from PIL import Image
 import bcrypt
 
 # Настройка логирования
@@ -63,17 +58,13 @@ else:
 
 # Настройки для загрузки файлов
 if is_render:
-    UPLOAD_FOLDER = '/tmp/uploads'  # Только для временных файлов
+    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/tmp/uploads')
 else:
     UPLOAD_FOLDER = os.path.join('static', 'uploads')
 
 UPLOAD_SUBFOLDERS = ['avatars', 'images', 'videos', 'covers', 'groups',
                      'channels', 'chat_images', 'group_covers', 'channel_covers',
                      'voice_messages']
-
-ALLOWED_IMAGE = {"png", "jpg", "jpeg", "gif", "webp"}
-ALLOWED_VIDEO = {"mp4", "webm", "mov", "avi", "mkv"}
-ALLOWED_AUDIO = {"mp3", "wav", "ogg", "m4a"}
 
 app.config.update(
     SECRET_KEY=os.environ.get("SECRET_KEY", os.urandom(48).hex()),
@@ -82,8 +73,8 @@ app.config.update(
     SQLALCHEMY_ENGINE_OPTIONS={
         "pool_pre_ping": True,
         "pool_recycle": 300,
-        "pool_size": 20,
-        "max_overflow": 40
+        "pool_size": 10,
+        "max_overflow": 20
     } if is_render else {},
     MAX_CONTENT_LENGTH=int(os.environ.get("MAX_CONTENT_LENGTH", 100 * 1024 * 1024)),
     UPLOAD_FOLDER=UPLOAD_FOLDER,
@@ -97,6 +88,10 @@ app.config.update(
     REMEMBER_COOKIE_SECURE=is_production,
     SESSION_REFRESH_EACH_REQUEST=True,
 )
+
+ALLOWED_IMAGE = {"png", "jpg", "jpeg", "gif", "webp"}
+ALLOWED_VIDEO = {"mp4", "webm", "mov", "avi", "mkv"}
+ALLOWED_AUDIO = {"mp3", "wav", "ogg", "m4a"}
 
 db = SQLAlchemy(app)
 csrf = CSRFProtect(app)
@@ -131,101 +126,6 @@ socketio = SocketIO(
     ping_interval=25,
     max_http_buffer_size=10e6
 )
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Image Processing Helper
-# ──────────────────────────────────────────────────────────────────────────────
-def process_image(file, max_size=(800, 800), quality=85):
-    """
-    Обрабатывает изображение: ресайз, оптимизация, конвертация в JPEG
-    Возвращает Base64 строку и MIME тип
-    """
-    if not file or not file.filename:
-        return None, None
-
-    try:
-        # Проверяем расширение
-        ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
-        if ext not in ALLOWED_IMAGE:
-            return None, None
-
-        # Открываем изображение
-        img = Image.open(file)
-
-        # Конвертируем в RGB если нужно (для JPEG)
-        if img.mode in ('RGBA', 'LA', 'P'):
-            bg = Image.new('RGB', img.size, (255, 255, 255))
-            if img.mode == 'RGBA':
-                bg.paste(img, mask=img.split()[3])
-            else:
-                bg.paste(img)
-            img = bg
-        elif img.mode != 'RGB':
-            img = img.convert('RGB')
-
-        # Ресайз
-        img.thumbnail(max_size, Image.Resampling.LANCZOS)
-
-        # Сохраняем в BytesIO
-        output = BytesIO()
-        img.save(output, format='JPEG', quality=quality, optimize=True)
-        output.seek(0)
-
-        # Конвертируем в Base64
-        image_data = output.read()
-        base64_data = base64.b64encode(image_data).decode('utf-8')
-
-        return base64_data, 'image/jpeg'
-
-    except Exception as e:
-        logger.error(f"Image processing error: {e}")
-        return None, None
-
-
-def process_image_from_bytes(image_bytes, max_size=(800, 800), quality=85):
-    """Обрабатывает изображение из байтов"""
-    try:
-        img = Image.open(BytesIO(image_bytes))
-
-        # Конвертируем в RGB если нужно
-        if img.mode in ('RGBA', 'LA', 'P'):
-            bg = Image.new('RGB', img.size, (255, 255, 255))
-            if img.mode == 'RGBA':
-                bg.paste(img, mask=img.split()[3])
-            else:
-                bg.paste(img)
-            img = bg
-        elif img.mode != 'RGB':
-            img = img.convert('RGB')
-
-        # Ресайз
-        img.thumbnail(max_size, Image.Resampling.LANCZOS)
-
-        # Сохраняем
-        output = BytesIO()
-        img.save(output, format='JPEG', quality=quality, optimize=True)
-        output.seek(0)
-
-        return output.read(), 'image/jpeg'
-
-    except Exception as e:
-        logger.error(f"Image processing from bytes error: {e}")
-        return None, None
-
-
-def save_image_to_db(file, max_size=(800, 800), quality=85):
-    """
-    Сохраняет изображение в базу данных (Base64)
-    Возвращает Data URL
-    """
-    if not file or not file.filename:
-        return None
-
-    base64_data, mime_type = process_image(file, max_size, quality)
-    if base64_data:
-        return f"data:{mime_type};base64,{base64_data}"
-    return None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -315,17 +215,8 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
     display_name = db.Column(db.String(60), default="")
     bio = db.Column(db.String(500), default="")
-
-    # Хранение изображений в БД как Base64
-    avatar_data = db.Column(db.Text, nullable=True)
-    avatar_mime = db.Column(db.String(50), default="image/png")
-    cover_data = db.Column(db.Text, nullable=True)
-    cover_mime = db.Column(db.String(50), default="image/jpeg")
-
-    # Для обратной совместимости
     avatar = db.Column(db.String(300), default="/static/default_avatar.png")
     cover_photo = db.Column(db.String(300), default="")
-
     website = db.Column(db.String(200), default="")
     location = db.Column(db.String(100), default="")
     accent_color = db.Column(db.String(7), default="#6c63ff")
@@ -340,7 +231,6 @@ class User(UserMixin, db.Model):
     two_factor_enabled = db.Column(db.Boolean, default=False)
     two_factor_secret = db.Column(db.String(32), nullable=True)
 
-    # Отношения
     posts = db.relationship("Post", backref="author", lazy="dynamic",
                             foreign_keys="Post.user_id")
     sent_msgs = db.relationship("Message", backref="sender", lazy="dynamic",
@@ -369,32 +259,6 @@ class User(UserMixin, db.Model):
         backref=db.backref("followers", lazy="dynamic"),
         lazy="dynamic"
     )
-
-    @property
-    def avatar_url(self):
-        """Получить URL аватара (из БД или по умолчанию)"""
-        if self.avatar_data:
-            return f"data:{self.avatar_mime};base64,{self.avatar_data}"
-        return self.avatar or "/static/default_avatar.png"
-
-    @property
-    def cover_url(self):
-        """Получить URL обложки (из БД или пусто)"""
-        if self.cover_data:
-            return f"data:{self.cover_mime};base64,{self.cover_data}"
-        return self.cover_photo or ""
-
-    def set_avatar(self, image_data, mime_type="image/png"):
-        """Установить аватар из бинарных данных"""
-        self.avatar_data = base64.b64encode(image_data).decode('utf-8')
-        self.avatar_mime = mime_type
-        self.avatar = ""
-
-    def set_cover(self, image_data, mime_type="image/jpeg"):
-        """Установить обложку из бинарных данных"""
-        self.cover_data = base64.b64encode(image_data).decode('utf-8')
-        self.cover_mime = mime_type
-        self.cover_photo = ""
 
     def set_password(self, pw: str):
         self.password_hash = generate_password_hash(pw)
@@ -435,7 +299,7 @@ class User(UserMixin, db.Model):
 
 class LoginHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)  # nullable=True для неудачных попыток
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     ip_address = db.Column(db.String(45), nullable=False)
     user_agent = db.Column(db.String(200))
     location = db.Column(db.String(100))
@@ -447,19 +311,12 @@ class VoiceMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     sender_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     receiver_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    audio_data = db.Column(db.Text, nullable=False)  # Base64 данные аудио
-    audio_mime = db.Column(db.String(50), default="audio/mpeg")
-    audio_url = db.Column(db.String(300), default="")
+    audio_url = db.Column(db.String(300), nullable=False)
     duration = db.Column(db.Integer, default=0)
     is_read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    @property
-    def audio_url_data(self):
-        if self.audio_data:
-            return f"data:{self.audio_mime};base64,{self.audio_data}"
-        return self.audio_url
-
+    # Явно указываем внешние ключи для отношений
     sender = db.relationship("User", foreign_keys=[sender_id], backref="sent_voice_msgs")
     receiver = db.relationship("User", foreign_keys=[receiver_id], backref="received_voice_msgs")
 
@@ -500,11 +357,6 @@ class Post(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     content = db.Column(db.Text, default="")
-
-    # Хранение медиа в БД
-    media_data = db.Column(db.Text, nullable=True)
-    media_mime = db.Column(db.String(50), nullable=True)
-
     media_url = db.Column(db.String(300), default="")
     media_type = db.Column(db.String(20), default="text")
     thumbnail = db.Column(db.String(300), default="")
@@ -513,18 +365,6 @@ class Post(db.Model):
 
     liked_by = db.relationship("User", secondary=post_likes, backref="liked_posts", lazy="dynamic")
     comments = db.relationship("Comment", backref="post", lazy="dynamic", cascade="all,delete")
-
-    @property
-    def media_url_data(self):
-        if self.media_data:
-            return f"data:{self.media_mime};base64,{self.media_data}"
-        return self.media_url
-
-    def set_media(self, media_data, mime_type, media_type="image"):
-        self.media_data = base64.b64encode(media_data).decode('utf-8')
-        self.media_mime = mime_type
-        self.media_type = media_type
-        self.media_url = ""
 
     @property
     def like_count(self):
@@ -551,19 +391,11 @@ class Message(db.Model):
     sender_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     receiver_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     content = db.Column(db.Text, default="")
-    media_data = db.Column(db.Text, nullable=True)
-    media_mime = db.Column(db.String(50), nullable=True)
     media_url = db.Column(db.String(300), default="")
     is_read = db.Column(db.Boolean, default=False)
     is_deleted = db.Column(db.Boolean, default=False)
     reply_to_id = db.Column(db.Integer, db.ForeignKey("message.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    @property
-    def media_url_data(self):
-        if self.media_data:
-            return f"data:{self.media_mime};base64,{self.media_data}"
-        return self.media_url
 
     replies = db.relationship("Message", backref=db.backref("reply_to", remote_side=[id]))
 
@@ -573,27 +405,11 @@ class Group(db.Model):
     name = db.Column(db.String(100), nullable=False)
     slug = db.Column(db.String(120), unique=True, nullable=False)
     description = db.Column(db.Text, default="")
-    avatar_data = db.Column(db.Text, nullable=True)
-    avatar_mime = db.Column(db.String(50), default="image/png")
-    cover_data = db.Column(db.Text, nullable=True)
-    cover_mime = db.Column(db.String(50), default="image/jpeg")
     avatar = db.Column(db.String(300), default="/static/default_group.png")
     cover = db.Column(db.String(300), default="")
     owner_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     is_private = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    @property
-    def avatar_url(self):
-        if self.avatar_data:
-            return f"data:{self.avatar_mime};base64,{self.avatar_data}"
-        return self.avatar
-
-    @property
-    def cover_url(self):
-        if self.cover_data:
-            return f"data:{self.cover_mime};base64,{self.cover_data}"
-        return self.cover
 
     members = db.relationship("User", secondary=group_members,
                               backref="groups", lazy="dynamic")
@@ -610,18 +426,9 @@ class GroupPost(db.Model):
     group_id = db.Column(db.Integer, db.ForeignKey("group.id"), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     content = db.Column(db.Text, default="")
-    media_data = db.Column(db.Text, nullable=True)
-    media_mime = db.Column(db.String(50), nullable=True)
     media_url = db.Column(db.String(300), default="")
     media_type = db.Column(db.String(20), default="text")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    @property
-    def media_url_data(self):
-        if self.media_data:
-            return f"data:{self.media_mime};base64,{self.media_data}"
-        return self.media_url
-
     author = db.relationship("User")
 
 
@@ -630,27 +437,11 @@ class Channel(db.Model):
     name = db.Column(db.String(100), nullable=False)
     slug = db.Column(db.String(120), unique=True, nullable=False)
     description = db.Column(db.Text, default="")
-    avatar_data = db.Column(db.Text, nullable=True)
-    avatar_mime = db.Column(db.String(50), default="image/png")
-    cover_data = db.Column(db.Text, nullable=True)
-    cover_mime = db.Column(db.String(50), default="image/jpeg")
     avatar = db.Column(db.String(300), default="/static/default_channel.png")
     cover = db.Column(db.String(300), default="")
     owner_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     is_nsfw = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    @property
-    def avatar_url(self):
-        if self.avatar_data:
-            return f"data:{self.avatar_mime};base64,{self.avatar_data}"
-        return self.avatar
-
-    @property
-    def cover_url(self):
-        if self.cover_data:
-            return f"data:{self.cover_mime};base64,{self.cover_data}"
-        return self.cover
 
     subscribers = db.relationship("User", secondary=channel_subs,
                                   backref="subscribed_channels", lazy="dynamic")
@@ -666,18 +457,10 @@ class ChannelPost(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     channel_id = db.Column(db.Integer, db.ForeignKey("channel.id"), nullable=False)
     content = db.Column(db.Text, default="")
-    media_data = db.Column(db.Text, nullable=True)
-    media_mime = db.Column(db.String(50), nullable=True)
     media_url = db.Column(db.String(300), default="")
     media_type = db.Column(db.String(20), default="text")
     views = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    @property
-    def media_url_data(self):
-        if self.media_data:
-            return f"data:{self.media_mime};base64,{self.media_data}"
-        return self.media_url
 
 
 class Notification(db.Model):
@@ -767,14 +550,13 @@ def ensure_upload_folders():
 
 
 def save_file(file, subfolder: str):
-    """Сохраняет файл (для видео и аудио)"""
     if not file or not file.filename:
         return None
     try:
         ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
         if not ext:
             return None
-        if ext not in ALLOWED_VIDEO and ext not in ALLOWED_AUDIO:
+        if ext not in ALLOWED_IMAGE and ext not in ALLOWED_VIDEO and ext not in ALLOWED_AUDIO:
             return None
         filename = f"{uuid.uuid4().hex}.{ext}"
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], subfolder)
@@ -794,59 +576,18 @@ def save_file(file, subfolder: str):
         return None
 
 
-def save_image(file, subfolder=None):
-    """Сохраняет изображение в базу данных (Base64)"""
-    if not file or not file.filename:
-        return None
-
-    try:
-        ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
-        if ext not in ALLOWED_IMAGE:
-            return None
-
-        # Проверяем размер
-        file.seek(0, 2)
-        size = file.tell()
-        file.seek(0)
-
-        if size > 5 * 1024 * 1024:  # 5MB max
-            return None
-
-        # Обрабатываем изображение
-        base64_data, mime_type = process_image(file)
-        if base64_data:
-            return f"data:{mime_type};base64,{base64_data}"
-        return None
-
-    except Exception as e:
-        logger.error(f"Error saving image: {e}")
-        return None
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 #  Маршрут для доступа к загруженным файлам
 # ──────────────────────────────────────────────────────────────────────────────
 
-@app.route('/uploads/<path:subfolder>/<path:filename>')
-def serve_upload(subfolder, filename):
-    if subfolder not in UPLOAD_SUBFOLDERS:
-        abort(404)
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], subfolder, filename)
-    if not os.path.exists(file_path):
-        abort(404)
-    return send_from_directory(
-        os.path.join(app.config['UPLOAD_FOLDER'], subfolder),
-        filename
-    )
-
-
 # ──────────────────────────────────────────────────────────────────────────────
-#  Report Routes
+#  Report Routes (для пользователей)
 # ──────────────────────────────────────────────────────────────────────────────
 
 @app.route("/report/user/<int:user_id>", methods=["GET", "POST"])
 @login_required
 def report_user(user_id):
+    """Пожаловаться на пользователя"""
     reported_user = User.query.get_or_404(user_id)
 
     if reported_user.id == current_user.id:
@@ -890,6 +631,7 @@ def report_user(user_id):
 @app.route("/report/post/<int:post_id>", methods=["GET", "POST"])
 @login_required
 def report_post(post_id):
+    """Пожаловаться на пост"""
     post = Post.query.get_or_404(post_id)
 
     if post.user_id == current_user.id:
@@ -934,6 +676,7 @@ def report_post(post_id):
 @app.route("/report/comment/<int:comment_id>", methods=["GET", "POST"])
 @login_required
 def report_comment(comment_id):
+    """Пожаловаться на комментарий"""
     comment = Comment.query.get_or_404(comment_id)
 
     if comment.user_id == current_user.id:
@@ -963,6 +706,18 @@ def report_comment(comment_id):
         return redirect(url_for("view_post", post_id=comment.post_id))
 
     return render_template("report_comment.html", comment=comment)
+
+@app.route('/uploads/<path:subfolder>/<path:filename>')
+def serve_upload(subfolder, filename):
+    if subfolder not in UPLOAD_SUBFOLDERS:
+        abort(404)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], subfolder, filename)
+    if not os.path.exists(file_path):
+        abort(404)
+    return send_from_directory(
+        os.path.join(app.config['UPLOAD_FOLDER'], subfolder),
+        filename
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1050,6 +805,7 @@ def inject_globals():
         notif_count = Notification.query.filter_by(
             user_id=current_user.id, is_read=False).count()
 
+        # Для админа добавляем статистику
         if current_user.is_admin:
             stats['total_reports'] = Report.query.filter_by(status='pending').count()
             stats['pending_verification'] = User.query.filter_by(is_verified=False, is_banned=False).count()
@@ -1109,6 +865,81 @@ def mark_all_notifications_read():
 # ──────────────────────────────────────────────────────────────────────────────
 #  Admin Routes
 # ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+#  Admin Routes (дополнительные)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.route("/admin/verification")
+@login_required
+@admin_required
+def admin_verification():
+    """Пользователи, ожидающие верификации"""
+    page = request.args.get("page", 1, type=int)
+    users = User.query.filter_by(is_verified=False, is_banned=False).order_by(User.created_at.desc()).paginate(
+        page=page, per_page=20)
+    return render_template("admin/verification.html", users=users)
+
+
+@app.route("/admin/banned")
+@login_required
+@admin_required
+def admin_banned():
+    """Забаненные пользователи"""
+    page = request.args.get("page", 1, type=int)
+    users = User.query.filter_by(is_banned=True).order_by(User.last_seen.desc()).paginate(page=page, per_page=20)
+    return render_template("admin/banned.html", users=users)
+
+
+@app.route("/admin/admins")
+@login_required
+@admin_required
+def admin_admins():
+    """Список администраторов"""
+    admins = User.query.filter_by(is_admin=True).order_by(User.created_at).all()
+    return render_template("admin/admins.html", admins=admins)
+
+
+@app.route("/admin/logs")
+@login_required
+@admin_required
+def admin_logs():
+    """История входов"""
+    page = request.args.get("page", 1, type=int)
+    logs = LoginHistory.query.order_by(LoginHistory.created_at.desc()).paginate(page=page, per_page=50)
+    return render_template("admin/logs.html", logs=logs)
+
+
+@app.route("/admin/user/<int:user_id>/toggle-verify", methods=["POST"])
+@login_required
+@admin_required
+def admin_toggle_verify(user_id):
+    """Дать/снять галочку верификации"""
+    user = User.query.get_or_404(user_id)
+    user.is_verified = not user.is_verified
+    db.session.commit()
+
+    status = "верифицирован" if user.is_verified else "снята верификация"
+    flash(f"Пользователь {user.username} {status}", "success")
+    return redirect(request.referrer or url_for("admin_users"))
+
+
+@app.route("/admin/user/<int:user_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def admin_delete_user(user_id):
+    """Полное удаление пользователя (осторожно!)"""
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        flash("Нельзя удалить самого себя", "error")
+        return redirect(url_for("admin_users"))
+
+    username = user.username
+    db.session.delete(user)
+    db.session.commit()
+
+    flash(f"Пользователь {username} полностью удален", "success")
+    return redirect(url_for("admin_users"))
+
 @app.route("/admin")
 @login_required
 @admin_required
@@ -1122,8 +953,6 @@ def admin_dashboard():
             User.created_at >= datetime.utcnow().date()
         ).count(),
         "banned_users": User.query.filter_by(is_banned=True).count(),
-        "images_in_db": User.query.filter(User.avatar_data.isnot(None)).count() +
-                         Post.query.filter(Post.media_data.isnot(None)).count()
     }
 
     recent_users = User.query.order_by(User.created_at.desc()).limit(10).all()
@@ -1201,36 +1030,6 @@ def admin_toggle_admin(user_id):
     return redirect(url_for("admin_users"))
 
 
-@app.route("/admin/user/<int:user_id>/toggle-verify", methods=["POST"])
-@login_required
-@admin_required
-def admin_toggle_verify(user_id):
-    user = User.query.get_or_404(user_id)
-    user.is_verified = not user.is_verified
-    db.session.commit()
-
-    status = "верифицирован" if user.is_verified else "снята верификация"
-    flash(f"Пользователь {user.username} {status}", "success")
-    return redirect(request.referrer or url_for("admin_users"))
-
-
-@app.route("/admin/user/<int:user_id>/delete", methods=["POST"])
-@login_required
-@admin_required
-def admin_delete_user(user_id):
-    user = User.query.get_or_404(user_id)
-    if user.id == current_user.id:
-        flash("Нельзя удалить самого себя", "error")
-        return redirect(url_for("admin_users"))
-
-    username = user.username
-    db.session.delete(user)
-    db.session.commit()
-
-    flash(f"Пользователь {username} полностью удален", "success")
-    return redirect(url_for("admin_users"))
-
-
 @app.route("/admin/reports")
 @login_required
 @admin_required
@@ -1270,42 +1069,6 @@ def admin_review_report(report_id):
     return redirect(url_for("admin_reports"))
 
 
-@app.route("/admin/verification")
-@login_required
-@admin_required
-def admin_verification():
-    page = request.args.get("page", 1, type=int)
-    users = User.query.filter_by(is_verified=False, is_banned=False).order_by(User.created_at.desc()).paginate(
-        page=page, per_page=20)
-    return render_template("admin/verification.html", users=users)
-
-
-@app.route("/admin/banned")
-@login_required
-@admin_required
-def admin_banned():
-    page = request.args.get("page", 1, type=int)
-    users = User.query.filter_by(is_banned=True).order_by(User.last_seen.desc()).paginate(page=page, per_page=20)
-    return render_template("admin/banned.html", users=users)
-
-
-@app.route("/admin/admins")
-@login_required
-@admin_required
-def admin_admins():
-    admins = User.query.filter_by(is_admin=True).order_by(User.created_at).all()
-    return render_template("admin/admins.html", admins=admins)
-
-
-@app.route("/admin/logs")
-@login_required
-@admin_required
-def admin_logs():
-    page = request.args.get("page", 1, type=int)
-    logs = LoginHistory.query.order_by(LoginHistory.created_at.desc()).paginate(page=page, per_page=50)
-    return render_template("admin/logs.html", logs=logs)
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 #  Voice Message Routes
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1329,18 +1092,18 @@ def send_voice_message():
         if ext not in ALLOWED_AUDIO:
             return jsonify({"error": "Audio format not supported"}), 400
 
-        # Сохраняем аудио в БД
-        audio_file.seek(0)
-        audio_data = audio_file.read()
-        base64_data = base64.b64encode(audio_data).decode('utf-8')
+        filename = f"voice_{uuid.uuid4().hex}.{ext}"
+        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], 'voice_messages')
+        os.makedirs(upload_path, exist_ok=True)
+        file_path = os.path.join(upload_path, filename)
+        audio_file.save(file_path)
 
         duration = request.form.get("duration", 0, type=int)
 
         voice_msg = VoiceMessage(
             sender_id=current_user.id,
             receiver_id=receiver.id,
-            audio_data=base64_data,
-            audio_mime=f"audio/{ext}",
+            audio_url=f"/uploads/voice_messages/{filename}",
             duration=duration
         )
         db.session.add(voice_msg)
@@ -1360,8 +1123,8 @@ def send_voice_message():
             "id": voice_msg.id,
             "sender_id": current_user.id,
             "sender_username": current_user.username,
-            "sender_avatar": current_user.avatar_url,
-            "audio_url": voice_msg.audio_url_data,
+            "sender_avatar": current_user.avatar,
+            "audio_url": voice_msg.audio_url,
             "duration": voice_msg.duration,
             "created_at": voice_msg.created_at.strftime("%H:%M")
         }, room=room)
@@ -1371,7 +1134,7 @@ def send_voice_message():
             "from_user": {
                 "id": current_user.id,
                 "username": current_user.username,
-                "avatar": current_user.avatar_url
+                "avatar": current_user.avatar
             },
             "text": f"Voice message from {current_user.username}"
         })
@@ -1394,7 +1157,7 @@ def get_voice_message(message_id):
     return jsonify({
         "id": msg.id,
         "sender_id": msg.sender_id,
-        "audio_url": msg.audio_url_data,
+        "audio_url": msg.audio_url,
         "duration": msg.duration,
         "created_at": msg.created_at.isoformat(),
         "is_read": msg.is_read
@@ -1465,7 +1228,7 @@ def start_call():
             "call_id": call.id,
             "caller_id": current_user.id,
             "caller_username": current_user.username,
-            "caller_avatar": current_user.avatar_url,
+            "caller_avatar": current_user.avatar,
             "type": call_type,
             "webrtc_config": webrtc_config
         }, room=room)
@@ -1570,7 +1333,7 @@ def call_history():
                 "id": other.id,
                 "username": other.username,
                 "display_name": other.display_name,
-                "avatar": other.avatar_url
+                "avatar": other.avatar
             },
             "type": call.call_type,
             "status": call.status,
@@ -1692,20 +1455,14 @@ def login():
             track_failure(ip)
             flash("Неверные учетные данные.", "error")
 
-        # Сохраняем историю входа (с user_id=None для неудачных попыток)
-        try:
-            login_history = LoginHistory(
-                user_id=user.id if user else None,
-                ip_address=ip,
-                user_agent=user_agent[:200],
-                location=None,
-                success=login_success
-            )
-            db.session.add(login_history)
-            db.session.commit()
-        except Exception as e:
-            logger.error(f"Failed to save login history: {e}")
-            db.session.rollback()
+        login_history = LoginHistory(
+            user_id=user.id if user else None,
+            ip_address=ip,
+            user_agent=user_agent,
+            success=login_success
+        )
+        db.session.add(login_history)
+        db.session.commit()
 
         if login_success:
             next_page = request.args.get("next")
@@ -1766,19 +1523,12 @@ def create_post():
     if media_file and media_file.filename:
         try:
             ext = media_file.filename.rsplit(".", 1)[-1].lower() if '.' in media_file.filename else ''
-
             if ext in ALLOWED_VIDEO:
-                media_url = save_file(media_file, "videos") or ""
+                media_url = save_file(media_file, "videos")
                 media_type = "video"
             elif ext in ALLOWED_IMAGE:
-                # Сохраняем изображение в БД
-                image_url = save_image(media_file)
-                if image_url:
-                    media_url = image_url
-                    media_type = "image"
-                else:
-                    media_url = save_file(media_file, "images") or ""
-                    media_type = "image" if media_url else "text"
+                media_url = save_file(media_file, "images")
+                media_type = "image"
             else:
                 flash(f"Неподдерживаемый тип файла", "error")
                 return redirect(url_for("index"))
@@ -1847,7 +1597,7 @@ def like_post(post_id):
                 "from_user": {
                     "id": current_user.id,
                     "username": current_user.username,
-                    "avatar": current_user.avatar_url
+                    "avatar": current_user.avatar
                 },
                 "post_id": post.id,
                 "text": f"{current_user.username} liked your post"
@@ -1887,7 +1637,7 @@ def add_comment(post_id):
             "from_user": {
                 "id": current_user.id,
                 "username": current_user.username,
-                "avatar": current_user.avatar_url
+                "avatar": current_user.avatar
             },
             "post_id": post.id,
             "comment": content[:50],
@@ -1899,7 +1649,7 @@ def add_comment(post_id):
     return jsonify({
         "id": c.id,
         "username": current_user.username,
-        "avatar": current_user.avatar_url,
+        "avatar": current_user.avatar,
         "content": c.content,
         "created_at": c.created_at.strftime("%b %d, %Y"),
     })
@@ -1960,7 +1710,6 @@ def edit_profile():
             current_user.accent_color = request.form.get("accent_color", "#6c63ff")[:7]
             current_user.is_private = bool(request.form.get("is_private"))
 
-            # Обработка аватара (сохраняем в БД)
             avatar = request.files.get("avatar")
             if avatar and avatar.filename:
                 avatar.seek(0, 2)
@@ -1970,16 +1719,13 @@ def edit_profile():
                 if file_size > 5 * 1024 * 1024:
                     flash("Avatar file too large. Maximum size is 5MB.", "error")
                 else:
-                    image_url = save_image(avatar)
-                    if image_url:
-                        current_user.avatar = image_url
-                        # Очищаем старые данные
-                        current_user.avatar_data = None
+                    url = save_file(avatar, "avatars")
+                    if url:
+                        current_user.avatar = url
                         flash("Avatar updated successfully!", "success")
                     else:
                         flash("Failed to upload avatar. Please try again.", "error")
 
-            # Обработка обложки (сохраняем в БД)
             cover = request.files.get("cover_photo")
             if cover and cover.filename:
                 cover.seek(0, 2)
@@ -1989,11 +1735,9 @@ def edit_profile():
                 if file_size > 10 * 1024 * 1024:
                     flash("Cover photo too large. Maximum size is 10MB.", "error")
                 else:
-                    image_url = save_image(cover)
-                    if image_url:
-                        current_user.cover_photo = image_url
-                        # Очищаем старые данные
-                        current_user.cover_data = None
+                    url = save_file(cover, "covers")
+                    if url:
+                        current_user.cover_photo = url
                         flash("Cover photo updated successfully!", "success")
                     else:
                         flash("Failed to upload cover photo. Please try again.", "error")
@@ -2040,7 +1784,7 @@ def follow(username):
             "from_user": {
                 "id": current_user.id,
                 "username": current_user.username,
-                "avatar": current_user.avatar_url
+                "avatar": current_user.avatar
             },
             "text": f"{current_user.username} started following you"
         })
@@ -2146,7 +1890,7 @@ def search():
                 "id": u.id,
                 "username": u.username,
                 "display_name": u.display_name or u.username,
-                "avatar": u.avatar_url,
+                "avatar": u.avatar or "/static/default_avatar.png",
                 "is_online": u.is_online
             } for u in users]
         })
@@ -2304,16 +2048,7 @@ def send_message(username):
         reply_to_id = request.form.get("reply_to", type=int)
 
         if media_file and media_file.filename:
-            ext = media_file.filename.rsplit('.', 1)[1].lower() if '.' in media_file.filename else ''
-            if ext in ALLOWED_IMAGE:
-                # Сохраняем изображение в БД
-                image_url = save_image(media_file)
-                if image_url:
-                    media_url = image_url
-                else:
-                    media_url = save_file(media_file, "chat_images") or ""
-            else:
-                media_url = save_file(media_file, "chat_images") or ""
+            media_url = save_file(media_file, "chat_images") or ""
 
         if not content and not media_url:
             return jsonify({"error": "Message cannot be empty."}), 400
@@ -2341,7 +2076,7 @@ def send_message(username):
             "id": msg.id,
             "sender_id": current_user.id,
             "sender_username": current_user.username,
-            "sender_avatar": current_user.avatar_url,
+            "sender_avatar": current_user.avatar,
             "content": msg.content,
             "media_url": msg.media_url,
             "reply_to_id": msg.reply_to_id,
@@ -2356,7 +2091,7 @@ def send_message(username):
             "from_user": {
                 "id": current_user.id,
                 "username": current_user.username,
-                "avatar": current_user.avatar_url
+                "avatar": current_user.avatar
             },
             "text": f"New message from {current_user.username}"
         })
@@ -2419,19 +2154,17 @@ def create_group():
             is_private=priv
         )
 
-        # Обработка аватара группы
         avatar = request.files.get("avatar")
         if avatar and avatar.filename:
-            image_url = save_image(avatar)
-            if image_url:
-                g.avatar = image_url
+            url = save_file(avatar, "groups")
+            if url:
+                g.avatar = url
 
-        # Обработка обложки группы
         cover = request.files.get("cover")
         if cover and cover.filename:
-            image_url = save_image(cover)
-            if image_url:
-                g.cover = image_url
+            url = save_file(cover, "group_covers")
+            if url:
+                g.cover = url
 
         db.session.add(g)
         db.session.flush()
@@ -2518,16 +2251,11 @@ def group_post(slug):
     if media_file and media_file.filename:
         ext = media_file.filename.rsplit(".", 1)[-1].lower()
         if ext in ALLOWED_VIDEO:
-            media_url = save_file(media_file, "videos") or ""
+            media_url = save_file(media_file, "videos")
             media_type = "video"
-        elif ext in ALLOWED_IMAGE:
-            image_url = save_image(media_file)
-            if image_url:
-                media_url = image_url
-                media_type = "image"
-            else:
-                media_url = save_file(media_file, "images") or ""
-                media_type = "image" if media_url else "text"
+        else:
+            media_url = save_file(media_file, "images")
+            media_type = "image"
 
     p = GroupPost(
         group_id=g.id,
@@ -2544,7 +2272,7 @@ def group_post(slug):
         "id": current_user.id,
         "username": current_user.username,
         "display_name": current_user.display_name,
-        "avatar": current_user.avatar_url
+        "avatar": current_user.avatar
     }
 
     post_data = {
@@ -2624,15 +2352,15 @@ def create_channel():
 
         avatar = request.files.get("avatar")
         if avatar and avatar.filename:
-            image_url = save_image(avatar)
-            if image_url:
-                c.avatar = image_url
+            url = save_file(avatar, "channels")
+            if url:
+                c.avatar = url
 
         cover = request.files.get("cover")
         if cover and cover.filename:
-            image_url = save_image(cover)
-            if image_url:
-                c.cover = image_url
+            url = save_file(cover, "channel_covers")
+            if url:
+                c.cover = url
 
         db.session.add(c)
         db.session.flush()
@@ -2709,16 +2437,11 @@ def channel_publish(slug):
     if media_file and media_file.filename:
         ext = media_file.filename.rsplit(".", 1)[-1].lower()
         if ext in ALLOWED_VIDEO:
-            media_url = save_file(media_file, "videos") or ""
+            media_url = save_file(media_file, "videos")
             media_type = "video"
-        elif ext in ALLOWED_IMAGE:
-            image_url = save_image(media_file)
-            if image_url:
-                media_url = image_url
-                media_type = "image"
-            else:
-                media_url = save_file(media_file, "images") or ""
-                media_type = "image" if media_url else "text"
+        else:
+            media_url = save_file(media_file, "images")
+            media_type = "image"
 
     p = ChannelPost(
         channel_id=c.id,
@@ -2835,14 +2558,6 @@ def debug_uploads():
                     "path": path,
                     "exists": False
                 }
-
-    # Добавляем статистику по изображениям в БД
-    result['database_images'] = {
-        'users_with_avatar': User.query.filter(User.avatar != "/static/default_avatar.png").count(),
-        'users_with_cover': User.query.filter(User.cover_photo != "").count(),
-        'posts_with_image': Post.query.filter(Post.media_type == "image").count(),
-        'messages_with_image': Message.query.filter(Message.media_url != "").count()
-    }
 
     return jsonify(result)
 
@@ -3059,6 +2774,7 @@ def create_admin_user():
 def run_migrations():
     """Автоматическая миграция базы данных при запуске"""
     try:
+        # Проверяем существующие колонки в таблице user
         inspector = db.inspect(db.engine)
         columns = [col['name'] for col in inspector.get_columns('user')]
 
@@ -3066,49 +2782,35 @@ def run_migrations():
 
         changes = []
 
-        # Добавляем колонки для хранения изображений в БД
-        image_columns = [
-            ('avatar_data', 'TEXT'),
-            ('avatar_mime', 'VARCHAR(50) DEFAULT "image/png"'),
-            ('cover_data', 'TEXT'),
-            ('cover_mime', 'VARCHAR(50) DEFAULT "image/jpeg"')
-        ]
+        # Добавляем колонку is_admin если её нет
+        if 'is_admin' not in columns:
+            logger.info("➕ Добавление колонки is_admin...")
+            db.session.execute(text('ALTER TABLE "user" ADD COLUMN is_admin BOOLEAN DEFAULT FALSE'))
+            changes.append("is_admin")
 
-        for col_name, col_type in image_columns:
-            if col_name not in columns:
-                logger.info(f"➕ Добавление колонки {col_name}...")
-                db.session.execute(text(f'ALTER TABLE "user" ADD COLUMN {col_name} {col_type}'))
-                changes.append(col_name)
+        # Добавляем колонку two_factor_enabled если её нет
+        if 'two_factor_enabled' not in columns:
+            logger.info("➕ Добавление колонки two_factor_enabled...")
+            db.session.execute(text('ALTER TABLE "user" ADD COLUMN two_factor_enabled BOOLEAN DEFAULT FALSE'))
+            changes.append("two_factor_enabled")
 
-        # Добавляем колонки в post
-        try:
-            post_columns = [col['name'] for col in inspector.get_columns('post')]
-            post_image_columns = [
-                ('media_data', 'TEXT'),
-                ('media_mime', 'VARCHAR(50)')
-            ]
-            for col_name, col_type in post_image_columns:
-                if col_name not in post_columns:
-                    logger.info(f"➕ Добавление колонки {col_name} в post...")
-                    db.session.execute(text(f'ALTER TABLE "post" ADD COLUMN {col_name} {col_type}'))
-                    changes.append(f"post.{col_name}")
-        except Exception as e:
-            logger.warning(f"Could not migrate post table: {e}")
+        # Добавляем колонку two_factor_secret если её нет
+        if 'two_factor_secret' not in columns:
+            logger.info("➕ Добавление колонки two_factor_secret...")
+            db.session.execute(text('ALTER TABLE "user" ADD COLUMN two_factor_secret VARCHAR(32)'))
+            changes.append("two_factor_secret")
 
-        # Добавляем колонки в message
-        try:
-            msg_columns = [col['name'] for col in inspector.get_columns('message')]
-            msg_image_columns = [
-                ('media_data', 'TEXT'),
-                ('media_mime', 'VARCHAR(50)')
-            ]
-            for col_name, col_type in msg_image_columns:
-                if col_name not in msg_columns:
-                    logger.info(f"➕ Добавление колонки {col_name} в message...")
-                    db.session.execute(text(f'ALTER TABLE "message" ADD COLUMN {col_name} {col_type}'))
-                    changes.append(f"message.{col_name}")
-        except Exception as e:
-            logger.warning(f"Could not migrate message table: {e}")
+        # Добавляем колонку is_online если её нет
+        if 'is_online' not in columns:
+            logger.info("➕ Добавление колонки is_online...")
+            db.session.execute(text('ALTER TABLE "user" ADD COLUMN is_online BOOLEAN DEFAULT FALSE'))
+            changes.append("is_online")
+
+        # Добавляем колонку last_seen если её нет
+        if 'last_seen' not in columns:
+            logger.info("➕ Добавление колонки last_seen...")
+            db.session.execute(text('ALTER TABLE "user" ADD COLUMN last_seen DATETIME'))
+            changes.append("last_seen")
 
         if changes:
             db.session.commit()
@@ -3116,13 +2818,27 @@ def run_migrations():
         else:
             logger.info("✅ Все колонки уже существуют")
 
-        # Проверяем существование таблиц
+        # Проверяем таблицу login_history
         tables = inspector.get_table_names()
-        for table in ['login_history', 'voice_message', 'call', 'report']:
-            if table not in tables:
-                logger.info(f"➕ Создание таблицы {table}...")
-                db.create_all()
-                logger.info(f"✅ Таблица {table} создана")
+        if 'login_history' not in tables:
+            logger.info("➕ Создание таблицы login_history...")
+            db.create_all()  # Создаст все недостающие таблицы
+            logger.info("✅ Таблица login_history создана")
+
+        if 'voice_message' not in tables:
+            logger.info("➕ Создание таблицы voice_message...")
+            db.create_all()
+            logger.info("✅ Таблица voice_message создана")
+
+        if 'call' not in tables:
+            logger.info("➕ Создание таблицы call...")
+            db.create_all()
+            logger.info("✅ Таблица call создана")
+
+        if 'report' not in tables:
+            logger.info("➕ Создание таблицы report...")
+            db.create_all()
+            logger.info("✅ Таблица report создана")
 
         # Обновляем существующих пользователей
         db.session.execute(text('UPDATE "user" SET is_admin = FALSE WHERE is_admin IS NULL'))
@@ -3151,7 +2867,7 @@ def init_app():
             # Запускаем миграции
             run_migrations()
 
-            # Создаем папки для загрузок (для видео и аудио)
+            # Создаем папки для загрузок
             ensure_upload_folders()
 
             # Тест прав на запись
@@ -3160,9 +2876,9 @@ def init_app():
                 with open(test_file, 'w') as f:
                     f.write('test')
                 os.remove(test_file)
-                logger.info("✅ Временная папка доступна для записи")
+                logger.info("✅ Папка загрузок доступна для записи")
             except Exception as e:
-                logger.warning(f"⚠️ Временная папка может быть недоступна: {e}")
+                logger.warning(f"⚠️ Папка загрузок может быть недоступна: {e}")
 
             # Создаем администратора
             create_admin_user()
@@ -3178,18 +2894,17 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 5000))
 
-    print("\n" + "=" * 70)
-    print("🚀 ЗАПУСК KILDEAR SOCIAL NETWORK (DATABASE STORAGE MODE)")
-    print("=" * 70)
+    print("\n" + "=" * 60)
+    print("🚀 ЗАПУСК KILDEAR SOCIAL NETWORK")
+    print("=" * 60)
     print(f"🌐 Сервер запускается на порту: {port}")
-    print(f"📁 Временная папка: {app.config['UPLOAD_FOLDER']}")
-    print(f"💾 Хранение изображений: В Базе Данных (Data URL)")
+    print(f"📁 Папка загрузок: {app.config['UPLOAD_FOLDER']}")
     print(f"🐍 Python: {platform.python_version()}")
     print(f"🖥️  Платформа: {platform.system()}")
     print(f"🎯 Режим: {'PRODUCTION' if is_production else 'DEVELOPMENT'}")
-    print("=" * 70)
+    print("=" * 60)
     print("📝 Для остановки нажмите Ctrl+C")
-    print("=" * 70 + "\n")
+    print("=" * 60 + "\n")
 
     socketio.run(app,
                  debug=not is_production,
